@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 
+# One engine per process. Building it does not connect, so importing this module
+# is cheap; the pool fills on first use and the app lifespan disposes it.
 engine: AsyncEngine = create_async_engine(
     settings.database_url,
     pool_size=settings.db_pool_size,

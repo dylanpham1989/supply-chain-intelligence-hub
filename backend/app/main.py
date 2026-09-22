@@ -10,10 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.db.session import engine
 
 log = get_logger(__name__)
 
@@ -30,13 +31,6 @@ class HealthPayload(TypedDict):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(env=settings.env, level="DEBUG" if settings.debug else "INFO")
 
-    engine = create_async_engine(
-        settings.database_url,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_pre_ping=True,
-        echo=False,
-    )
     redis: Redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
     app.state.engine = engine
