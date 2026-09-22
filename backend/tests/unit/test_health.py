@@ -45,4 +45,4 @@ def test_schema_is_hidden_in_prod_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert app.openapi_url is None
     assert app.docs_url is None
-    assert not any(route.path == "/" for route in app.routes)
+    assert not any(getattr(route, "path", None) == "/" for route in app.routes)
