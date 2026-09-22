@@ -4,11 +4,13 @@ Every environment-dependent value is read here and nowhere else, so that the
 rest of the codebase never touches os.environ directly.
 """
 
+import json
+from contextlib import suppress
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Placeholders that let `make up` work with no configuration. Any environment
 # other than local/test refuses to start while these are still in place.
@@ -66,14 +68,25 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1
 
     max_upload_bytes: int = 20 * 1024 * 1024
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173"]
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+        """Accept both a comma-separated list and a JSON array.
+
+        Compose and .env files tend to carry the first form, Kubernetes
+        ConfigMaps and Secrets Manager entries the second.
+        """
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.startswith("["):
+            with suppress(json.JSONDecodeError):
+                return json.loads(text)
+        return [item.strip() for item in text.split(",") if item.strip()]
 
     @model_validator(mode="after")
     def _reject_insecure_defaults(self) -> "Settings":

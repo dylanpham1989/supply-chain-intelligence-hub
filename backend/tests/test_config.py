@@ -40,3 +40,22 @@ def test_cors_origins_accept_comma_separated_string() -> None:
     )
 
     assert cfg.cors_origins == ["http://a.test", "http://b.test"]
+
+
+def test_cors_origins_parse_from_environment(monkeypatch: "pytest.MonkeyPatch") -> None:
+    """Goes through the env source, which JSON-decodes complex types by default."""
+    monkeypatch.setenv("CORS_ORIGINS", "http://a.test,http://b.test")
+
+    cfg = Settings(env="local", _env_file=None)
+
+    assert cfg.cors_origins == ["http://a.test", "http://b.test"]
+
+
+def test_cors_origins_accept_json_array_from_environment(
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://a.test"]')
+
+    cfg = Settings(env="local", _env_file=None)
+
+    assert cfg.cors_origins == ["http://a.test"]
