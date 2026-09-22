@@ -52,12 +52,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    # Schema and interactive docs are useful while developing and in CI, where the
+    # frontend types are generated from them, but they describe the whole attack
+    # surface so they stay off in deployed environments.
+    expose_schema = settings.env in ("local", "test", "staging")
+
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        docs_url="/docs",
+        docs_url="/docs" if expose_schema else None,
         redoc_url=None,
-        openapi_url="/openapi.json",
+        openapi_url="/openapi.json" if expose_schema else None,
         lifespan=lifespan,
     )
 
@@ -70,9 +75,11 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID"],
     )
 
-    @app.get("/", include_in_schema=False)
-    async def root() -> RedirectResponse:
-        return RedirectResponse(url="/docs")
+    if expose_schema:
+
+        @app.get("/", include_in_schema=False)
+        async def root() -> RedirectResponse:
+            return RedirectResponse(url="/docs")
 
     @app.get("/health", tags=["health"])
     async def health() -> JSONResponse:

@@ -1,4 +1,8 @@
+import pytest
 from httpx import AsyncClient
+
+from app.core.config import settings
+from app.main import create_app
 
 
 async def test_health_reports_dependency_status(client: AsyncClient) -> None:
@@ -24,3 +28,21 @@ async def test_openapi_schema_is_served(client: AsyncClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["info"]["title"]
+
+
+def test_schema_is_exposed_in_local_env() -> None:
+    app = create_app()
+
+    assert app.openapi_url == "/openapi.json"
+    assert app.docs_url == "/docs"
+
+
+def test_schema_is_hidden_in_prod_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The schema describes the whole attack surface, so it stays off in prod."""
+    monkeypatch.setattr(settings, "env", "prod")
+
+    app = create_app()
+
+    assert app.openapi_url is None
+    assert app.docs_url is None
+    assert not any(route.path == "/" for route in app.routes)
