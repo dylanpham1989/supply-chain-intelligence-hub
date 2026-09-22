@@ -33,11 +33,13 @@ class Settings(BaseSettings):
     git_sha: str = "unknown"
     built_at: str = "unknown"
 
-    database_url: str = "postgresql+asyncpg://app_user:app_password@localhost:5432/scih"
+    database_url: str = "postgresql+asyncpg://app_user:app_password@localhost:55432/scih"
+    # Alembic needs the owner; app_user is deliberately powerless and RLS-bound.
+    database_owner_url: str = "postgresql+asyncpg://postgres:postgres@localhost:55432/scih"
     db_pool_size: int = 10
     db_max_overflow: int = 5
 
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://localhost:56379/0"
 
     s3_endpoint_url: str | None = "http://localhost:9000"
     s3_bucket: str = "scih-documents"

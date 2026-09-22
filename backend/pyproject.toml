@@ -82,7 +82,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["^alembic/", "^tests/"]
 
 [[tool.mypy.overrides]]
-module = ["jose.*", "passlib.*", "arq.*"]
+module = ["jose.*", "passlib.*", "arq.*", "uuid_extensions.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
