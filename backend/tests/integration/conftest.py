@@ -4,6 +4,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.rls import set_tenant_context
@@ -20,7 +21,7 @@ UNREACHABLE = (
 @pytest.fixture
 async def engine() -> AsyncIterator[AsyncEngine]:
     """Connects as app_user, the role the application uses and RLS applies to."""
-    eng = create_async_engine(settings.database_url, poolclass=None)
+    eng = create_async_engine(settings.database_url, poolclass=NullPool)
     try:
         async with eng.connect() as conn:
             await conn.execute(text("SELECT 1"))
