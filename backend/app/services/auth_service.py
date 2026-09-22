@@ -103,9 +103,16 @@ class AuthService:
             raise AuthError()
 
         user.last_login_at = datetime.now(UTC)
+        pruned = await RefreshTokenRepository(self.session, tenant.id).prune_for_user(user.id)
         await self.session.flush()
 
-        log.info("auth.login", tenant_id=str(tenant.id), user_id=str(user.id), role=user.role)
+        log.info(
+            "auth.login",
+            tenant_id=str(tenant.id),
+            user_id=str(user.id),
+            role=user.role,
+            pruned_tokens=pruned,
+        )
         return await self._issue(user, tenant.slug, family_id=None)
 
     async def refresh(self, raw_token: str) -> IssuedTokens:
