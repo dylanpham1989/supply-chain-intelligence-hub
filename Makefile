@@ -78,7 +78,7 @@ fmt: ## Format backend and frontend
 	cd frontend && npm run format
 
 typecheck: ## Type-check backend and frontend
-	$(BACKEND) uv run mypy app
+	$(BACKEND) uv run mypy app ai worker
 	cd frontend && npm run typecheck
 
 audit: ## Check for assistant tooling traces

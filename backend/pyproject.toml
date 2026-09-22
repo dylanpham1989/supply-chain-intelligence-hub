@@ -33,20 +33,25 @@ dev = [
     "ruff>=0.9",
     "mypy>=1.14",
     "types-passlib>=1.7",
+    "reportlab>=4.2",
+    "pandas-stubs>=2.2",
     "asgi-lifespan>=2.1",
 ]
 ai = [
     "sentence-transformers>=3.3",
+    "scikit-learn>=1.6",
+    "joblib>=1.4",
+]
+# Parsing runs in the worker, so the api image does not carry it.
+ingest = [
     "pypdf>=5.1",
     "pdfplumber>=0.11",
     "pandas>=2.2",
-    "scikit-learn>=1.6",
-    "joblib>=1.4",
     "charset-normalizer>=3.4",
 ]
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["dev", "ingest"]
 
 [build-system]
 requires = ["hatchling"]
@@ -69,6 +74,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
+# The fixture reproduces a wrapped pdf line; its length is the test condition.
+"tests/unit/test_chunker.py" = ["S101", "S105", "S106", "E501"]
 "alembic/**" = ["E501", "N999"]
 
 [tool.ruff.lint.isort]
@@ -82,7 +89,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["^alembic/", "^tests/"]
 
 [[tool.mypy.overrides]]
-module = ["jose.*", "passlib.*", "arq.*", "uuid_extensions.*"]
+module = ["jose.*", "passlib.*", "arq.*", "uuid_extensions.*", "boto3.*", "botocore.*", "pdfplumber.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -92,7 +99,7 @@ addopts = "-q --strict-markers"
 markers = ["integration: requires postgres and redis"]
 
 [tool.coverage.run]
-source = ["app"]
+source = ["app", "ai", "worker"]
 # SQLAlchemy's async layer runs awaits inside greenlets. Without this, every line
 # reached through a database call is reported as uncovered.
 concurrency = ["greenlet", "thread"]
