@@ -4,7 +4,7 @@ Multi-tenant platform that turns shipping manifests, invoices and supplier contr
 queryable insights. Logistics and manufacturing companies sign up as separate tenants, upload
 documents, and ask questions in plain language against their own data.
 
-> Status: in progress. Phase 1 of 11 is complete (project foundation and local stack).
+> Status: in progress. Phases 1 and 2 are complete (foundation, schema, tenant isolation).
 > The roadmap below tracks what is built and what is not, so nothing here overstates the
 > current state.
 
@@ -36,6 +36,8 @@ Requires Docker with at least 6 GB of memory available.
 git clone https://github.com/dylanpham1989/supply-chain-intelligence-hub.git
 cd supply-chain-intelligence-hub
 make up
+make migrate
+make seed
 ```
 
 | Service | URL |
@@ -67,13 +69,35 @@ Configuration lives in one place, `backend/app/core/config.py`. Nothing else rea
 environment directly. Any environment other than `local` or `test` refuses to start while the
 placeholder secrets from `.env.example` are still in use.
 
+## Tenant isolation
+
+Tenants share one schema and every owned row carries a `tenant_id`. That scales better than a
+database or schema per tenant, at the cost of being the option where a forgotten `WHERE` leaks
+data, so the boundary is enforced in three places:
+
+1. Postgres row-level security. Each tenant table has a policy keyed on the `app.tenant_id`
+   setting, enabled with FORCE so it applies to the table owner too. The setting is written with
+   `set_config(..., is_local => true)`, which ties it to the transaction and keeps a pooled
+   connection from carrying one tenant's id into the next request. An unset setting resolves to
+   NULL, which matches nothing, so a request that forgets to scope itself reads zero rows rather
+   than everything.
+2. The repository layer takes `tenant_id` in its constructor and filters on it, which also keeps
+   query plans on the composite indexes that lead with `tenant_id`.
+3. The application connects as a role created `NOSUPERUSER NOBYPASSRLS`, so the policies cannot
+   be sidestepped.
+
+`backend/tests/integration/test_rls.py` covers reads, writes, updates, deletes, aggregates and
+the repository layer, and asserts on `pg_class` that no tenant table is missing a policy. The
+policies were mutation tested, including a permissive `USING (true)` variant, to confirm the
+tests fail when the boundary is removed.
+
 ## Roadmap
 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Project foundation, local stack, health checks | Done |
-| 2 | Schema and tenant isolation with row-level security | Next |
-| 3 | JWT auth with refresh rotation, role-based access | Planned |
+| 2 | Schema and tenant isolation with row-level security | Done |
+| 3 | JWT auth with refresh rotation, role-based access | Next |
 | 4 | Core REST API, filtering, Redis caching | Planned |
 | 5 | Document upload and background ingestion | Planned |
 | 6 | Retrieval pipeline, vector store, grounded answers | Planned |
