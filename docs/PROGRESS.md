@@ -142,3 +142,26 @@ Measured:
 
 Next: phase 3, auth. The dependency that resolves the token has to share one session with the
 one that sets the tenant context, otherwise the context lands on a connection nobody queries.
+
+### Review pass on phase 2
+
+Four findings, two of them real bugs.
+
+1. **Two engines in one process.** `app/main.py` built its own engine in the lifespan while
+   `app/db/session.py` built another at import. That is two connection pools, and `/health`
+   was probing the one that no request would ever use. The engine now lives in
+   `db/session.py` alone and the lifespan disposes it.
+2. **Migration 0002 imported `TENANT_SCOPED_TABLES` from `app.models`.** A migration has to
+   keep describing the schema as it was at that revision, and this one read a list that later
+   phases will grow. Reproduced it by adding a name to the tuple: `alembic downgrade base`
+   fails on `ALTER TABLE future_phase_table NO FORCE ROW LEVEL SECURITY`. The list is now
+   spelled out in the migration, and `tests/unit/test_migrations.py` fails if it drifts from
+   the models, in either direction. That last part matters: the reverse mistake, a new model
+   with a `tenant_id` that nobody adds to the list, is a silent leak rather than an error.
+3. `.env.example` advertised `DATABASE_URL_HOST` and friends that nothing reads. Replaced with
+   a comment about where the host defaults actually come from.
+4. `poolclass=None` in the test engine means "use the default pool", not "no pool". With an
+   engine built per test that leaves connections around, so it is `NullPool` now.
+
+After: 34 backend tests, 95 percent coverage, one engine, one `app_user` connection at idle.
+`db/session.py` sits at 46 percent because `get_session` has no caller until the auth work.
