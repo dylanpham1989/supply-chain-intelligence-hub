@@ -43,6 +43,10 @@ make up
 | API docs | http://localhost:8000/docs |
 | Web | http://localhost:5173 |
 | MinIO console | http://localhost:9001 |
+| Postgres | localhost:55432 |
+| Redis | localhost:56379 |
+
+Postgres and Redis are published on 55432 and 56379 rather than their default ports, because a native instance on the machine takes the loopback address first and host tooling would then talk to the wrong database.
 
 `make help` lists every target. `make verify` runs what CI runs: lint, type check, tests and
 the repository audit.

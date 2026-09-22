@@ -44,11 +44,17 @@ install: ## Install backend and frontend dependencies locally
 	$(BACKEND) uv sync
 	cd frontend && npm ci
 
-migrate: ## Apply database migrations (added in phase 2)
-	$(COMPOSE) exec api alembic upgrade head
+migrate: ## Apply database migrations
+	$(COMPOSE) exec -T api alembic upgrade head
 
-seed: ## Load demo tenants and shipments (added in phase 2)
-	$(COMPOSE) exec api python -m scripts.seed_data
+migrate-down: ## Roll back one migration
+	$(COMPOSE) exec -T api alembic downgrade -1
+
+revision: ## Autogenerate a migration, name it with m="..."
+	$(COMPOSE) exec -T api alembic revision --autogenerate -m "$(m)"
+
+seed: ## Load demo tenants and shipments
+	$(COMPOSE) exec -T api python -m scripts.seed_data
 
 test: ## Run backend and frontend tests
 	$(UVR) pytest
