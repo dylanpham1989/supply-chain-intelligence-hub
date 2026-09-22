@@ -8,7 +8,6 @@ RUN npm ci
 COPY frontend/ ./
 
 
-# Stage used by docker compose for local development, with the Vite dev server.
 FROM builder AS dev
 EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
@@ -22,10 +21,8 @@ RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
 
-# nginx:alpine runs envsubst over /etc/nginx/templates at startup, so the
-# api upstream is set per environment instead of baked into the image.
-# Without the filter, envsubst would also eat nginx's own $host, $uri and
-# $proxy_add_x_forwarded_for, leaving a config that proxies nowhere.
+# nginx:alpine envsubsts /etc/nginx/templates on boot. The filter matters:
+# without it envsubst also eats $host, $uri and friends.
 ENV API_UPSTREAM=http://api:8000 \
     NGINX_ENVSUBST_FILTER=API_UPSTREAM
 COPY infra/docker/nginx-templates/ /etc/nginx/templates/

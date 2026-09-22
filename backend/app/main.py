@@ -52,9 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    # Schema and interactive docs are useful while developing and in CI, where the
-    # frontend types are generated from them, but they describe the whole attack
-    # surface so they stay off in deployed environments.
+    # CI generates the frontend types off this, but prod does not need to publish it.
     expose_schema = settings.env in ("local", "test", "staging")
 
     app = FastAPI(
@@ -101,7 +99,6 @@ def create_app() -> FastAPI:
 
 
 async def _check(name: str, probe: Callable[[Any], Awaitable[None]], resource: Any) -> bool:
-    """Run one dependency probe. Any failure means unhealthy, never an exception."""
     try:
         await asyncio.wait_for(probe(resource), timeout=DEPENDENCY_TIMEOUT_S)
     except Exception as exc:

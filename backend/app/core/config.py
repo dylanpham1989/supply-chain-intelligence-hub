@@ -1,8 +1,4 @@
-"""Application settings.
-
-Every environment-dependent value is read here and nowhere else, so that the
-rest of the codebase never touches os.environ directly.
-"""
+"""Settings. Nothing else in the codebase reads os.environ."""
 
 import json
 from contextlib import suppress
@@ -12,8 +8,7 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-# Placeholders that let `make up` work with no configuration. Any environment
-# other than local/test refuses to start while these are still in place.
+# Defaults so `make up` needs no config. Rejected outside local/test, see below.
 INSECURE_JWT_SECRET = "insecure-local-secret-do-not-use-outside-development"  # noqa: S105
 INSECURE_S3_SECRET = "minioadmin"  # noqa: S105
 
@@ -75,11 +70,7 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
-        """Accept both a comma-separated list and a JSON array.
-
-        Compose and .env files tend to carry the first form, Kubernetes
-        ConfigMaps and Secrets Manager entries the second.
-        """
+        # .env files give us "a,b", ConfigMaps give us '["a","b"]'.
         if not isinstance(value, str):
             return value
         text = value.strip()
@@ -90,7 +81,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_insecure_defaults(self) -> "Settings":
-        """Fail fast rather than start a deployed service with placeholder secrets."""
         if self.env in ("local", "test"):
             return self
         if self.jwt_secret == INSECURE_JWT_SECRET:
