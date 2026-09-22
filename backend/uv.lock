@@ -997,6 +997,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pandas-stubs"
+version = "3.0.5.260914"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/93/8948ae6c1e1e3d6833596fd266f7be2d27c1451b8be094975ad42c5e842e/pandas_stubs-3.0.5.260914.tar.gz", hash = "sha256:3f6fc1f147f68fd89c007105e7c94a948acb4ecd7eb20dc1c02e153c4ed5c250", size = 117622, upload-time = "2026-09-14T16:42:35.065Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/cb/5ad79e02a556cc23fed5816de0109fa8af660c66cfa5f4af74c3e8d4cd26/pandas_stubs-3.0.5.260914-py3-none-any.whl", hash = "sha256:39a1300c5c5c55fdf609e3476805decce5d5015539a4dcb683449f8feaeee2fb", size = 177344, upload-time = "2026-09-14T16:42:33.771Z" },
+]
+
+[[package]]
 name = "passlib"
 version = "1.7.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1380,6 +1392,19 @@ wheels = [
 ]
 
 [[package]]
+name = "reportlab"
+version = "5.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "charset-normalizer" },
+    { name = "pillow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/51/dbe28534ae12c852f61be91f039f343305fd1f34f1c66b8de75afae7a525/reportlab-5.0.1.tar.gz", hash = "sha256:ebd13154be1c8515e665de70bd2d303ae9ddc3ef47e44afd5116441ca0283a26", size = 3945711, upload-time = "2026-08-20T13:48:16.461Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/cb/dacbc268cb68d0428ea2cbd85266195a9ab3e677449589ddae59bd7542ac/reportlab-5.0.1-py3-none-any.whl", hash = "sha256:1c36e6bb0e71780c72331eba60da7f602e8d4389a8723825af71342e49d791e8", size = 1957258, upload-time = "2026-08-20T13:48:14.026Z" },
+]
+
+[[package]]
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1492,11 +1517,7 @@ dependencies = [
 
 [package.dev-dependencies]
 ai = [
-    { name = "charset-normalizer" },
     { name = "joblib" },
-    { name = "pandas" },
-    { name = "pdfplumber" },
-    { name = "pypdf" },
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
 ]
@@ -1504,11 +1525,19 @@ dev = [
     { name = "asgi-lifespan" },
     { name = "httpx" },
     { name = "mypy" },
+    { name = "pandas-stubs" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "reportlab" },
     { name = "ruff" },
     { name = "types-passlib" },
+]
+ingest = [
+    { name = "charset-normalizer" },
+    { name = "pandas" },
+    { name = "pdfplumber" },
+    { name = "pypdf" },
 ]
 
 [package.metadata]
@@ -1535,11 +1564,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 ai = [
-    { name = "charset-normalizer", specifier = ">=3.4" },
     { name = "joblib", specifier = ">=1.4" },
-    { name = "pandas", specifier = ">=2.2" },
-    { name = "pdfplumber", specifier = ">=0.11" },
-    { name = "pypdf", specifier = ">=5.1" },
     { name = "scikit-learn", specifier = ">=1.6" },
     { name = "sentence-transformers", specifier = ">=3.3" },
 ]
@@ -1547,11 +1572,19 @@ dev = [
     { name = "asgi-lifespan", specifier = ">=2.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mypy", specifier = ">=1.14" },
+    { name = "pandas-stubs", specifier = ">=2.2" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.25" },
     { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "reportlab", specifier = ">=4.2" },
     { name = "ruff", specifier = ">=0.9" },
     { name = "types-passlib", specifier = ">=1.7" },
+]
+ingest = [
+    { name = "charset-normalizer", specifier = ">=3.4" },
+    { name = "pandas", specifier = ">=2.2" },
+    { name = "pdfplumber", specifier = ">=0.11" },
+    { name = "pypdf", specifier = ">=5.1" },
 ]
 
 [[package]]

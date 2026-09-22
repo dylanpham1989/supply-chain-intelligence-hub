@@ -5,6 +5,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, TypedDict
 
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,11 +51,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.engine = engine
     app.state.redis = redis
+    app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     log.info("app.startup", env=settings.env, vector_backend=settings.vector_backend)
 
     try:
         yield
     finally:
+        await app.state.queue.aclose()
         await redis.aclose()
         await engine.dispose()
         log.info("app.shutdown")
