@@ -1,9 +1,4 @@
-"""Structured logging.
-
-Logs go to stdout as JSON in every environment except local development, where a
-human-readable renderer is easier to scan. Keys that look like credentials are
-replaced before the record is rendered.
-"""
+"""JSON logs to stdout, pretty-printed locally. Credential-looking keys redacted."""
 
 import logging
 import re
@@ -53,8 +48,7 @@ def configure_logging(*, env: str = "local", level: str = "INFO") -> None:
         cache_logger_on_first_use=True,
     )
 
-    # The access-log middleware added in phase 9 emits one line per request, so
-    # uvicorn's own access log would duplicate it.
+    # We emit our own access line per request.
     logging.getLogger("uvicorn.access").disabled = True
 
 

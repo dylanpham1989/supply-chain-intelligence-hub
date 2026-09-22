@@ -8,7 +8,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      # A native postgres or redis on the dev machine grabs the loopback address
+      # before docker does, so host tooling would silently talk to the wrong
+      # database. Publish on our own ports instead.
+      - "55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
@@ -23,7 +26,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes", "--save", ""]
     ports:
-      - "6379:6379"
+      - "56379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -59,13 +62,13 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://app_user:app_password@postgres:5432/${POSTGRES_DB:-scih}
+      DATABASE_OWNER_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-scih}
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000
     ports:
       - "8000:8000"
     volumes:
-      # Source is mounted for reload. The virtualenv lives at /opt/venv so it is
-      # not shadowed by this mount.
+      # venv lives at /opt/venv so this mount does not shadow it
       - ./backend:/app
     command:
       - uvicorn
@@ -90,8 +93,7 @@ services:
       target: dev
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-      # The dev server proxies to the api over the compose network, so this is a
-      # service name rather than localhost, which inside this container is itself.
+      # not localhost: inside this container that is the web container
       VITE_API_PROXY: http://api:8000
     ports:
       - "5173:5173"

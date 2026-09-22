@@ -9,7 +9,7 @@ from app.main import create_app
 
 @pytest.fixture
 async def client() -> AsyncIterator[AsyncClient]:
-    """App instance with lifespan run, since ASGITransport does not run it."""
+    # ASGITransport does not run lifespan, and /health needs what it sets up.
     app = create_app()
     transport = ASGITransport(app=app)
     async with (

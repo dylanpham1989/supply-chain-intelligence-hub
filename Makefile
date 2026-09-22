@@ -5,7 +5,8 @@ UVR := $(BACKEND) uv run
 
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps build shell-api shell-db seed migrate \
-        test test-cov lint fmt typecheck verify audit clean install
+        migrate-down revision test test-unit test-cov lint fmt typecheck verify \
+        audit clean install
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -44,15 +45,24 @@ install: ## Install backend and frontend dependencies locally
 	$(BACKEND) uv sync
 	cd frontend && npm ci
 
-migrate: ## Apply database migrations (added in phase 2)
-	$(COMPOSE) exec api alembic upgrade head
+migrate: ## Apply database migrations
+	$(COMPOSE) exec -T api alembic upgrade head
 
-seed: ## Load demo tenants and shipments (added in phase 2)
-	$(COMPOSE) exec api python -m scripts.seed_data
+migrate-down: ## Roll back one migration
+	$(COMPOSE) exec -T api alembic downgrade -1
 
-test: ## Run backend and frontend tests
+revision: ## Autogenerate a migration, name it with m="..."
+	$(COMPOSE) exec -T api alembic revision --autogenerate -m "$(m)"
+
+seed: ## Load demo tenants and shipments
+	$(COMPOSE) exec -T api python -m scripts.seed_data
+
+test: ## Run backend and frontend tests (needs `make up`)
 	$(UVR) pytest
 	cd frontend && npm run test -- --run
+
+test-unit: ## Run only the tests that need no services
+	$(UVR) pytest -m "not integration"
 
 test-cov: ## Run backend tests with coverage report
 	$(UVR) pytest --cov --cov-report=term-missing --cov-report=html

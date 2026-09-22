@@ -9,7 +9,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 
 WORKDIR /build
 COPY backend/pyproject.toml backend/uv.lock ./
-# Dependencies resolve in their own layer so editing source does not refetch them.
+# Separate layer so touching source does not reinstall deps.
 RUN uv sync --frozen --no-dev --no-install-project
 
 
@@ -34,9 +34,8 @@ ENV GIT_SHA=${GIT_SHA} BUILT_AT=${BUILT_AT}
 USER app
 EXPOSE 8000
 
-# Liveness only: any HTTP answer means the process is up. A 503 from /health
-# means a dependency is down, which is a readiness concern, not a reason to
-# restart the container. Phase 9 splits these into separate endpoints.
+# Liveness, not readiness: a 503 means a dependency is down, which is no reason
+# to kill the container. Any HTTP answer counts as alive.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
     CMD ["python", "-c", "import sys,urllib.error,urllib.request\ntry:\n    urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\nexcept urllib.error.HTTPError:\n    pass\nexcept Exception:\n    sys.exit(1)"]
 

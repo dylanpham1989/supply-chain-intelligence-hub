@@ -10,10 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.db.session import engine
 
 log = get_logger(__name__)
 
@@ -30,13 +31,6 @@ class HealthPayload(TypedDict):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(env=settings.env, level="DEBUG" if settings.debug else "INFO")
 
-    engine = create_async_engine(
-        settings.database_url,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
-        pool_pre_ping=True,
-        echo=False,
-    )
     redis: Redis = Redis.from_url(settings.redis_url, decode_responses=True)
 
     app.state.engine = engine
@@ -52,9 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    # Schema and interactive docs are useful while developing and in CI, where the
-    # frontend types are generated from them, but they describe the whole attack
-    # surface so they stay off in deployed environments.
+    # CI generates the frontend types off this, but prod does not need to publish it.
     expose_schema = settings.env in ("local", "test", "staging")
 
     app = FastAPI(
@@ -101,7 +93,6 @@ def create_app() -> FastAPI:
 
 
 async def _check(name: str, probe: Callable[[Any], Awaitable[None]], resource: Any) -> bool:
-    """Run one dependency probe. Any failure means unhealthy, never an exception."""
     try:
         await asyncio.wait_for(probe(resource), timeout=DEPENDENCY_TIMEOUT_S)
     except Exception as exc:
