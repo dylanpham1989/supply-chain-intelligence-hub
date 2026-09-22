@@ -309,3 +309,60 @@ Measured: 162 backend tests, 94.5 percent coverage. Against the seeded data, acm
 shipments at 76.1 percent on time and globex 120 at 80.5, from separate cache entries.
 
 Next: phase 5, document upload and the ingestion worker.
+
+## 2026-09-23 - Phase 5, document upload and the ingestion worker
+
+Upload returns 202 and hands the file to an ARQ worker. Parsing a contract takes seconds,
+which is longer than a proxy will hold a connection, and a failed request would lose the
+upload entirely.
+
+Shape of it:
+- The object key is server generated, `{tenant_id}/{document_id}.pdf`. The client's filename
+  is kept only as a label. A filename that reaches the object store is a path traversal waiting
+  to be tried.
+- Uploads are validated on what they are, not what they claim: a pdf has to start with `%PDF-`,
+  a csv has to parse as one, and the read is capped as it streams rather than after.
+- The job is idempotent. Chunks are deleted before they are written and manifest rows are
+  deduplicated on reference, so a redelivered message replaces its output instead of doubling
+  it. Redis delivers at least once; the job has to be safe to repeat.
+- `PermanentError` and `TransientError` are separate. A scanned pdf will still be scanned on
+  the next attempt, so it fails once with a message a user can read rather than retrying three
+  times and giving up silently.
+- Manifest rows become shipments. Structured data belongs in the table it describes: counting
+  late deliveries in sql is exact, and asking an index the same question is not. One summary
+  chunk keeps the file findable by a question.
+- `worker/db.py` is the only route from a job to the database, because a job has no request to
+  carry the tenant and has to set the context itself.
+
+Two bugs the suite would not have found:
+1. **Ingesting a manifest left the dashboard stale.** The worker wrote 42 shipments and the
+   summary endpoint kept serving 120 from cache. Cache invalidation existed on the api write
+   path and not on the worker's. A job writing shipments is as much a write as a request is.
+   Found by uploading through the running stack and comparing the endpoint against the table:
+   162 rows in postgres, 120 in the response.
+2. **The cleaner was dead code.** `clean_pages` was written, tested by nothing, and never
+   called, so repeated headers and footers went into every chunk. Coverage reporting it at
+   0 percent is what gave it away, which is the argument for measuring `ai` and `worker` rather
+   than only `app`.
+
+A chunking bug found while checking the samples by hand: the clause regex matched any line
+starting with a number, so the wrapped body line "2 percent of the shipment value ..." read as
+clause 2 and cut clause 4.2 in half, dropping the figure a question about penalties is looking
+for. Requiring an uppercase letter after the number, plus a length cap on the heading line,
+fixes it. Clause 4.2 now survives whole at 411 characters with both percentages intact, and a
+test pins the exact text.
+
+Sample documents are committed: two contracts, an invoice with a line item table, and two
+manifests whose headers are deliberately awkward (Ref No, POL, POD, Cartons, Invoice Value)
+with a few malformed rows, because real manifests always have some. A demo that starts with
+"first find yourself a shipping contract" is a demo nobody runs.
+
+On the slow link: pypi stalled completely, 18 minutes with no bytes moved. The Aliyun mirror
+served the same wheels at 1.09 MB/s and the install finished in 41 seconds. It resolved a
+lockfile with 786 mirror URLs baked in, which would have pointed every clone at a mirror, so
+the lock was restored from git and only the new packages resolved against pypi. The mirror is
+passed as a build arg and an env var, never committed.
+
+209 backend tests, 92 percent coverage.
+
+Next: phase 6, embeddings and retrieval.
