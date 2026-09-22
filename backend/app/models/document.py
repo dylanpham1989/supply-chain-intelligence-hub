@@ -31,6 +31,7 @@ class Document(TenantEntity):
     )
     page_count: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+    job_id: Mapped[str | None] = mapped_column(String(64))
     # Swapping the embedding model invalidates existing vectors, so record which
     # one produced them instead of finding out through bad retrieval.
     embedding_model: Mapped[str | None] = mapped_column(String(200))
