@@ -2,6 +2,8 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.integration
 
@@ -180,3 +182,52 @@ async def test_login_is_rate_limited(api: AsyncClient, clean_rate_limits: None) 
 
     assert codes[:5] == [401] * 5
     assert codes[5] == 429
+
+
+async def test_login_prunes_spent_refresh_tokens(
+    api: AsyncClient, session: AsyncSession, clean_rate_limits: None
+) -> None:
+    """Nothing else removes these rows, so the table would grow with every login."""
+    await _signup(api)
+    credentials = {
+        "tenant_slug": SIGNUP["tenant_slug"],
+        "email": SIGNUP["email"],
+        "password": SIGNUP["password"],
+    }
+
+    for _ in range(3):
+        assert (await api.post("/api/v1/auth/login", json=credentials)).status_code == 200
+    # Rotating leaves the previous token revoked and therefore prunable.
+    assert (await api.post(REFRESH_PATH)).status_code == 200
+
+    spent = text(
+        "SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NOT NULL OR expires_at <= now()"
+    )
+    before = (await session.execute(spent)).scalar()
+    assert before, "expected at least one spent token to prune"
+
+    assert (await api.post("/api/v1/auth/login", json=credentials)).status_code == 200
+
+    # Counting rows would not show this: the login also inserts one.
+    assert (await session.execute(spent)).scalar() == 0
+
+
+async def test_pruning_leaves_live_sessions_alone(
+    api: AsyncClient, session: AsyncSession, clean_rate_limits: None
+) -> None:
+    await _signup(api)
+    live_token = api.cookies.get("refresh_token")
+
+    await api.post(
+        "/api/v1/auth/login",
+        json={
+            "tenant_slug": SIGNUP["tenant_slug"],
+            "email": SIGNUP["email"],
+            "password": SIGNUP["password"],
+        },
+    )
+
+    api.cookies.set("refresh_token", live_token or "")
+    still_valid = await api.post(REFRESH_PATH)
+
+    assert still_valid.status_code == 200

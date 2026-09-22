@@ -6,11 +6,13 @@ from contextlib import asynccontextmanager
 from typing import Any, TypedDict
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -21,6 +23,16 @@ from app.db.session import engine
 log = get_logger(__name__)
 
 DEPENDENCY_TIMEOUT_S = 2.0
+
+HTTP_ERROR_CODES = {
+    401: "unauthenticated",
+    403: "forbidden",
+    404: "not_found",
+    405: "method_not_allowed",
+    409: "conflict",
+    413: "payload_too_large",
+    429: "rate_limited",
+}
 
 
 class HealthPayload(TypedDict):
@@ -88,6 +100,39 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content={"code": exc.code, "message": exc.message},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        # Same envelope as everything else, so a client branches on one shape.
+        fields = [
+            {"field": ".".join(str(p) for p in err["loc"][1:]), "problem": err["msg"]}
+            for err in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={"code": "validation_error", "message": "Request is invalid", "fields": fields},
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "code": HTTP_ERROR_CODES.get(exc.status_code, "error"),
+                "message": str(exc.detail),
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
+        log.exception("request.unhandled", path=request.url.path, error=str(exc))
+        # The traceback goes to the log, never to the caller.
+        return JSONResponse(
+            status_code=500,
+            content={"code": "internal_error", "message": "Internal server error"},
         )
 
     app.include_router(api_router, prefix=settings.api_prefix)
