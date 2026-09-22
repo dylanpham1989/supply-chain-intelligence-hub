@@ -1,0 +1,101 @@
+[project]
+name = "scih-backend"
+version = "0.1.0"
+description = "Supply Chain Intelligence Hub backend"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "redis>=5.2",
+    "arq>=0.26",
+    "boto3>=1.35",
+    "python-jose[cryptography]>=3.3",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt<4.1",
+    "python-multipart>=0.0.20",
+    "structlog>=24.4",
+    "prometheus-client>=0.21",
+    "uuid7>=0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "types-passlib>=1.7",
+    "asgi-lifespan>=2.1",
+]
+ai = [
+    "sentence-transformers>=3.3",
+    "pypdf>=5.1",
+    "pdfplumber>=0.11",
+    "pandas>=2.2",
+    "pgvector>=0.3.6",
+    "scikit-learn>=1.6",
+    "joblib>=1.4",
+    "charset-normalizer>=3.4",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "S", "C4", "SIM", "RUF"]
+ignore = [
+    "B008",   # FastAPI dependency injection relies on calls in argument defaults
+    "RUF001", # ambiguous unicode is handled by the repository trace guard
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"alembic/**" = ["E501", "N999"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "ai", "worker"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+exclude = ["^alembic/", "^tests/"]
+
+[[tool.mypy.overrides]]
+module = ["jose.*", "passlib.*", "arq.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = ["integration: requires postgres and redis"]
+
+[tool.coverage.run]
+source = ["app", "ai", "worker"]
+omit = ["*/alembic/*", "*/tests/*", "*/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
