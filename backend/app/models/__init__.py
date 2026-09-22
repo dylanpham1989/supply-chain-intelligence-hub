@@ -3,6 +3,7 @@ from app.models.alert import Alert
 from app.models.contract import Contract
 from app.models.document import Document, DocumentChunk
 from app.models.insight import Insight
+from app.models.refresh_token import RefreshToken
 from app.models.shipment import Shipment
 from app.models.supplier import Supplier
 from app.models.tenant import Tenant
@@ -20,6 +21,7 @@ TENANT_SCOPED_TABLES = (
     "document_chunks",
     "insights",
     "alerts",
+    "refresh_tokens",
 )
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "Insight",
+    "RefreshToken",
     "Shipment",
     "Supplier",
     "Tenant",
