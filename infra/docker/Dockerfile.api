@@ -7,10 +7,17 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
+# Override to build through a mirror. Empty means pypi.
+ARG UV_DEFAULT_INDEX=""
+ENV UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX}
+
 WORKDIR /build
 COPY backend/pyproject.toml backend/uv.lock ./
-# Separate layer so touching source does not reinstall deps.
-RUN uv sync --frozen --no-dev --no-install-project
+# Separate layer so touching source does not reinstall deps. The cache mount
+# survives layer invalidation, so changing one dependency downloads one wheel
+# rather than all of them.
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --no-install-project
 
 
 FROM python:3.12-slim AS runtime
