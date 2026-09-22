@@ -268,3 +268,44 @@ invariant. Both fixes were mutation tested; disabling pruning fails its test, an
 HTTP exception handler fails two envelope tests.
 
 111 backend tests, 94 percent coverage.
+
+## 2026-09-22 - Phase 4, shipments, suppliers, alerts and analytics
+
+22 endpoints. Listing with filters, sorting and paging; five analytics aggregates; a
+tenant-namespaced cache in front of the dashboard.
+
+Shape of it:
+- Aggregates run in SQL. `FILTER (WHERE ...)` for the counts, `generate_series` left joined
+  against shipments so a quiet month is a zero rather than a gap the chart closes up, and
+  `NULLIF(..., 0)` so an empty window is null instead of a division error.
+- Sort columns come from a dict, never `getattr(Model, user_input)`. The schema types them as
+  `Literal`, so an unknown column is a 422 rather than a 500 or, worse, an ordering by a column
+  the caller should not be able to read.
+- Every list orders by the sort column and then the primary key. Without the tie-break, paging
+  over duplicate values repeats and skips rows.
+- Cache keys start with the tenant. Row-level security does not reach into redis, so a key that
+  omits the tenant serves one customer's dashboard to another and nothing downstream notices.
+  Writes invalidate by tag through a redis set, not `KEYS`, which blocks the server while it
+  scans. Reads and writes both fail open. `X-Cache` says hit or miss so the cache is observable
+  without a debug endpoint.
+
+Two bugs that only appeared when the endpoints were actually called:
+1. **Every request to a list endpoint returned 422.** FastAPI flattens one pydantic query model
+   per endpoint. A second one is not an error: both quietly become query parameters named after
+   the argument, so `filters` and `pagination` were required scalars. Reproduced it in six lines
+   against a bare app. Filter models now inherit `PaginationParams`, one model per endpoint, and
+   a test reads the OpenAPI schema and fails if any query parameter is named after a model.
+2. **The timeseries endpoint returned 500.** `:since::timestamptz` inside `text()` confuses the
+   bind parameter parser, since `::` is also postgres cast syntax. `CAST(:since AS timestamptz)`
+   is unambiguous. Nothing caught it because no test called the endpoint; there are now
+   parametrised tests over all five, on an empty workspace and on one with rows.
+
+Cache mutations, all caught:
+- Drop the tenant from the key: 7 tests fail, including the cross-tenant leak.
+- Drop the params from the key: 3 fail, including two windows sharing one entry.
+- Stop invalidating on write: 2 fail.
+
+Measured: 162 backend tests, 94.5 percent coverage. Against the seeded data, acme reports 120
+shipments at 76.1 percent on time and globex 120 at 80.5, from separate cache entries.
+
+Next: phase 5, document upload and the ingestion worker.
