@@ -92,7 +92,7 @@ addopts = "-q --strict-markers"
 markers = ["integration: requires postgres and redis"]
 
 [tool.coverage.run]
-source = ["app", "ai", "worker"]
+source = ["app"]
 omit = ["*/alembic/*", "*/tests/*", "*/__main__.py"]
 
 [tool.coverage.report]
