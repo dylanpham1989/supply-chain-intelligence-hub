@@ -90,6 +90,9 @@ services:
       target: dev
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      # The dev server proxies to the api over the compose network, so this is a
+      # service name rather than localhost, which inside this container is itself.
+      VITE_API_PROXY: http://api:8000
     ports:
       - "5173:5173"
     volumes:
