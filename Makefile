@@ -5,7 +5,8 @@ UVR := $(BACKEND) uv run
 
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps build shell-api shell-db seed migrate \
-        test test-cov lint fmt typecheck verify audit clean install
+        migrate-down revision test test-unit test-cov lint fmt typecheck verify \
+        audit clean install
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -56,9 +57,12 @@ revision: ## Autogenerate a migration, name it with m="..."
 seed: ## Load demo tenants and shipments
 	$(COMPOSE) exec -T api python -m scripts.seed_data
 
-test: ## Run backend and frontend tests
+test: ## Run backend and frontend tests (needs `make up`)
 	$(UVR) pytest
 	cd frontend && npm run test -- --run
+
+test-unit: ## Run only the tests that need no services
+	$(UVR) pytest -m "not integration"
 
 test-cov: ## Run backend tests with coverage report
 	$(UVR) pytest --cov --cov-report=term-missing --cov-report=html

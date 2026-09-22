@@ -26,6 +26,8 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         # ENABLE alone exempts the table owner, which is who migrations run as.
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        # WITH CHECK is what postgres would infer from USING anyway, but writing
+        # it out makes the write side of the policy obvious to the next reader.
         op.execute(
             f"""
             CREATE POLICY tenant_isolation ON {table}
