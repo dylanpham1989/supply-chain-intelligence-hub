@@ -13,6 +13,19 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    location /api/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /health {
+        proxy_pass ${API_UPSTREAM};
+        proxy_set_header Host $host;
+    }
+
     # Single page app: unknown paths are routes, not missing files.
     location / {
         try_files $uri $uri/ /index.html;
