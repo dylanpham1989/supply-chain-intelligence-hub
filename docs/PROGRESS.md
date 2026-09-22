@@ -227,3 +227,44 @@ Environment note: `docker compose build` hangs on this machine through buildx ba
 result; the tests run against the source on the host, so this blocked nothing.
 
 Next: phase 4, the shipment and analytics endpoints, with the cache key namespaced per tenant.
+
+## 2026-09-22 - build caching and a review pass
+
+Build caching:
+- Both Dockerfiles mount a dependency cache (`/root/.cache/uv`, `/root/.npm`). A cache mount
+  survives layer invalidation, so changing one dependency downloads one wheel instead of all
+  of them. On a link where pypi is serving at 20 kB/s that is the difference between a minute
+  and half an hour, and it matters more once torch arrives.
+- `Dockerfile.api` takes a `UV_DEFAULT_INDEX` build arg, empty by default, for building
+  through a mirror without that mirror being baked into the repository.
+
+A misdiagnosis, corrected. `docker compose build` looked like it hung and plain `docker build
+--progress=plain` looked like it worked, so the conclusion was that buildx bake was broken
+here. It was not. The default progress renderer shows nothing until a step finishes, and the
+step was a 15 minute download. Compose builds fine. The `COMPOSE_BAKE=false` line written on
+that basis was removed rather than shipped; a workaround for a problem that was never there is
+worse than nothing, because the next person believes it.
+
+For the record on the slow link, since it cost real time: the host itself, not docker, pulls
+from files.pythonhosted.org at 17 to 21 kB/s across repeated tries, while Cloudflare gives
+1.8 MB/s and the npm registry 1.4 MB/s on the same connection. The Fastly response names the
+Singapore edge with an age of six days, so it is a cache hit being served slowly, not a cold
+origin. That is peering between this ISP and Fastly, and nothing local fixes it.
+
+Review findings:
+1. **Three different error shapes.** Our handler answered `{code, message}`, validation
+   failures answered `{detail: [...]}` and an unknown route answered `{detail: "Not Found"}`.
+   A client had to branch on which one it got. Handlers for `RequestValidationError` and
+   `StarletteHTTPException` now map into the same envelope, validation failures name the
+   offending fields, and a catch-all logs the traceback and returns `internal_error` without
+   it. A test asserts no error body contains a traceback or a source path.
+2. **`refresh_tokens` grew forever.** Every login and every rotation inserted a row and nothing
+   removed any. Login now prunes that user's expired and revoked tokens, which bounds the table
+   without a scheduler: a user cannot hold more rows than they have live sessions.
+
+The pruning test failed first time and the test was wrong, not the code: login prunes one row
+and inserts one, so the row count does not move. Counting spent rows instead states the actual
+invariant. Both fixes were mutation tested; disabling pruning fails its test, and swapping the
+HTTP exception handler fails two envelope tests.
+
+111 backend tests, 94 percent coverage.
