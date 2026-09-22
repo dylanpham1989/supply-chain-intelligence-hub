@@ -9,12 +9,25 @@ changes the policies has to be edited here too.
 """
 
 from alembic import op
-from app.models import TENANT_SCOPED_TABLES
 
 revision: str = "0002"
 down_revision: str | None = "0001"
 branch_labels: str | None = None
 depends_on: str | None = None
+
+# Spelled out rather than imported from app.models: a migration has to keep
+# describing the schema as it was at this revision. A table added later needs its
+# own migration, and a test asserts the two lists agree.
+TENANT_SCOPED_TABLES = (
+    "users",
+    "suppliers",
+    "shipments",
+    "contracts",
+    "documents",
+    "document_chunks",
+    "insights",
+    "alerts",
+)
 
 # NULLIF turns an unset GUC into NULL, and NULL = anything is never true, so a
 # request that forgot to set the tenant sees nothing instead of everything.
