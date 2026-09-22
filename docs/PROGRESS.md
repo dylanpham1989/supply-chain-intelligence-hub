@@ -165,3 +165,65 @@ Four findings, two of them real bugs.
 
 After: 34 backend tests, 95 percent coverage, one engine, one `app_user` connection at idle.
 `db/session.py` sits at 46 percent because `get_session` has no caller until the auth work.
+
+## 2026-09-22 - Phase 3, auth and access control
+
+Signup, login, refresh rotation, permission guards, rate limiting, and the wiring that makes
+the phase 2 policies apply to a real request.
+
+Shape of it:
+- Access tokens live 15 minutes and carry a `typ` claim. Without it a refresh token, which
+  lives a week, would be accepted as a bearer.
+- Refresh tokens are stored as a sha256 digest, never in the clear, and rotate on use.
+  Presenting an already revoked token means a copy is loose, so the whole family is revoked
+  rather than that one token. The honest holder gets logged out too; that is the trade.
+- Endpoints ask for a permission, never for a role. `require("user:write")` reads a map keyed
+  on role, so a new role is one entry rather than an edit to every route.
+- Login is rate limited per tenant, email and IP, and pays the bcrypt cost even when the
+  workspace or the email does not exist, so a miss cannot be told from a wrong password by
+  timing. Both answers are byte for byte identical.
+- bcrypt runs in a worker thread. At cost 12 it is a couple hundred milliseconds of CPU, which
+  on the event loop would stall every other request on the worker.
+
+The wiring that matters: `get_current_user` reads the tenant off the verified token and sets
+it on the session, and FastAPI hands the route handler that same session object. If those were
+two sessions, the context would land on a connection nobody queries and every policy would see
+no tenant. `tests/integration/test_request_scoping.py` exists for that one thing.
+
+Five mutations, and the fifth found a hole:
+1. Remove `set_tenant_context` from the dependency: 3 tests fail. They fail with 401 rather
+   than leaking, because an unset tenant makes the user lookup itself return nothing.
+2. Set the context on a different session: same 3 tests fail.
+3. Drop the policy on `shipments` (phase 2): 8 tests fail.
+4. Permissive `USING (true)` policy: 6 tests fail.
+5. Read the tenant from an `X-Tenant-Id` header instead of the token: **all 33 tests passed**.
+   Nothing sent that header, so the single most damaging mistake in a multi-tenant API went
+   unnoticed. Added tests that try to steer the tenant through a header, a query parameter and
+   a request body; the header one now fails under that mutation.
+
+Bugs found while building:
+- `EmailStr` rejects `.test`, which RFC 6761 reserves for exactly this. The demo seed uses
+  `admin@acme.test`, so every seeded account was unable to log in. Replaced it with a type that
+  validates syntax and normalises case but accepts reserved and internal domains. Whether an
+  address receives mail is not a question syntax can answer; a verification email is.
+- `UserService.list` returned `Page[User]` with `User` being the ORM model, which pydantic
+  cannot build a schema for. The service returns rows and a count now, and the router builds
+  the envelope. Better separation anyway.
+- **Coverage was being measured wrong across the whole project.** SQLAlchemy's async layer runs
+  awaits inside greenlets, and coverage.py does not trace those by default, so every line
+  reached through a database call was reported as uncovered. `auth_service.py` showed 61 while
+  its tests clearly exercised it. With `concurrency = ["greenlet", "thread"]` the same suite
+  reports 91 for that file and 94 overall.
+
+Known issue, not fixed: passlib warns that `crypt` is removed in Python 3.13. We pin 3.12 so it
+runs, but passlib is unmaintained and the way out is `pwdlib` with argon2. Left visible rather
+than silenced.
+
+Measured: 104 backend tests, 94 percent coverage. `permissions.py`, `db/rls.py`,
+`repositories/base.py` and both v1 routers at 100, `security.py` at 98, `auth_service.py` at 91.
+
+Environment note: `docker compose build` hangs on this machine through buildx bake, and plain
+`docker build` works but one wheel took 596 seconds to download. The api image is stale as a
+result; the tests run against the source on the host, so this blocked nothing.
+
+Next: phase 4, the shipment and analytics endpoints, with the cache key namespaced per tenant.

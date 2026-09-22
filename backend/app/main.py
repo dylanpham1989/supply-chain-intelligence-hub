@@ -5,14 +5,16 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, TypedDict
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.errors import AppError
 from app.core.logging import configure_logging, get_logger
 from app.db.session import engine
 
@@ -72,6 +74,23 @@ def create_app() -> FastAPI:
         @app.get("/", include_in_schema=False)
         async def root() -> RedirectResponse:
             return RedirectResponse(url="/docs")
+
+    @app.exception_handler(AppError)
+    async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        log.warning(
+            "request.failed",
+            code=exc.code,
+            status=exc.status_code,
+            path=request.url.path,
+            **exc.extra,
+        )
+        # No stack trace to the client; it goes to the log instead.
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.code, "message": exc.message},
+        )
+
+    app.include_router(api_router, prefix=settings.api_prefix)
 
     @app.get("/health", tags=["health"])
     async def health() -> JSONResponse:

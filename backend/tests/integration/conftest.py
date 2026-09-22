@@ -2,12 +2,17 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from uuid import UUID
 
 import pytest
+from asgi_lifespan import LifespanManager
+from httpx import ASGITransport, AsyncClient
+from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+from app.core.deps import get_session
 from app.db.rls import set_tenant_context
+from app.main import create_app
 from app.models import Tenant
 
 TenantSwitch = Callable[[UUID], Awaitable[None]]
@@ -77,3 +82,38 @@ async def as_tenant(session: AsyncSession) -> TenantSwitch:
         await set_tenant_context(session, tenant_id)
 
     return _switch
+
+
+@pytest.fixture
+async def api(session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """App wired to the rolled-back test session.
+
+    Overriding get_session is what lets a request and the test see the same
+    transaction, and it is also how the tenant context set inside
+    get_current_user stays observable from the test.
+    """
+    app = create_app()
+
+    async def _session_override() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    app.dependency_overrides[get_session] = _session_override
+    transport = ASGITransport(app=app)
+    async with (
+        LifespanManager(app),
+        AsyncClient(transport=transport, base_url="http://testserver") as client,
+    ):
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def clean_rate_limits() -> AsyncIterator[None]:
+    """Rate limit state lives in the real redis, so it would leak between tests."""
+    redis: Redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    async for key in redis.scan_iter("rl:*"):
+        await redis.delete(key)
+    yield
+    async for key in redis.scan_iter("rl:*"):
+        await redis.delete(key)
+    await redis.aclose()
