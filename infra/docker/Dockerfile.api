@@ -34,7 +34,10 @@ ENV GIT_SHA=${GIT_SHA} BUILT_AT=${BUILT_AT}
 USER app
 EXPOSE 8000
 
+# Liveness only: any HTTP answer means the process is up. A 503 from /health
+# means a dependency is down, which is a readiness concern, not a reason to
+# restart the container. Phase 9 splits these into separate endpoints.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
-    CMD ["python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/openapi.json',timeout=2)"]
+    CMD ["python", "-c", "import sys,urllib.error,urllib.request\ntry:\n    urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\nexcept urllib.error.HTTPError:\n    pass\nexcept Exception:\n    sys.exit(1)"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
