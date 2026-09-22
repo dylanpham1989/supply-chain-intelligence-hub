@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      - id: check-ai-traces
+        name: check for assistant tooling traces
+        entry: scripts/check_ai_traces.sh
+        language: script
+        pass_filenames: false
+        always_run: true
