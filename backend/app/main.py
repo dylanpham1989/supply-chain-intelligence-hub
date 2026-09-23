@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ai.embeddings.hf_embedder import get_embedder
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.errors import AppError
@@ -25,6 +26,7 @@ from app.db.session import engine
 log = get_logger(__name__)
 
 DEPENDENCY_TIMEOUT_S = 2.0
+EMBEDDER_WARM_TIMEOUT_S = 60.0
 
 HTTP_ERROR_CODES = {
     401: "unauthenticated",
@@ -52,6 +54,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.redis = redis
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+
+    # Answering a question embeds it, so the model loads here rather than inside
+    # whichever request happens to be first. A failure is not fatal: health, auth
+    # and every endpoint that does not retrieve still work, and the first
+    # question pays for the load instead.
+    try:
+        await asyncio.wait_for(get_embedder().warm(), timeout=EMBEDDER_WARM_TIMEOUT_S)
+    except Exception as exc:
+        log.warning("embedder.warm_failed", error=str(exc))
     log.info("app.startup", env=settings.env, vector_backend=settings.vector_backend)
 
     try:

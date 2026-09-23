@@ -17,10 +17,13 @@ COPY backend/pyproject.toml backend/uv.lock ./
 # survives layer invalidation, so changing one dependency downloads one wheel
 # rather than all of them.
 #
-# --no-default-groups, not --no-dev: the ingest and ai groups are defaults for
-# local work, and --no-dev would leave torch and pandas in this image.
+# The ai group is here because answering a question means embedding it, and that
+# happens on the read path inside this process. The ingest group is not: parsing
+# only ever runs in the worker. Splitting the image further would mean a
+# separate embedding service, or an onnx runtime build of the same model, and
+# neither is worth the moving parts at this size.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv sync --frozen --no-default-groups --no-install-project
+    uv sync --frozen --no-default-groups --group ai --no-install-project
 
 
 FROM python:3.12-slim AS runtime
@@ -33,6 +36,16 @@ RUN groupadd --gid 10001 app \
  && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /opt/venv /opt/venv
+
+# Same model as the worker, baked in for the same reason: a question should not
+# wait on a download.
+ENV HF_HOME=/models \
+    SENTENCE_TRANSFORMERS_HOME=/models
+ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+RUN --mount=type=cache,target=/root/.cache/huggingface,sharing=locked \
+    python -c "from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('${EMBEDDING_MODEL}', device='cpu')" \
+ && chown -R app:app /models
 
 WORKDIR /app
 COPY --chown=app:app backend/ /app/
