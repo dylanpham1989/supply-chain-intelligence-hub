@@ -1,7 +1,7 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import CursorResult, bindparam, text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.vectorstore.base import SearchHit, VectorItem
@@ -13,28 +13,33 @@ EF_SEARCH = 40
 # The tenant predicate is in the statement, not applied to the results. Postgres
 # can use the tenant-leading index for it, and a search that returns nothing is
 # better than one that returns someone else's documents.
+# Every optional parameter is cast. asyncpg infers types from the statement, and
+# a bare :param compared against NULL gives it nothing to infer from.
 SEARCH_SQL = text("""
     SELECT id, document_id, content, metadata,
            1 - (embedding <=> CAST(:query AS vector)) AS score
     FROM document_chunks
-    WHERE tenant_id = :tenant_id
+    WHERE tenant_id = CAST(:tenant_id AS uuid)
       AND embedding IS NOT NULL
-      AND (:doc_type IS NULL OR metadata->>'doc_type' = :doc_type)
-      AND (:filter_docs IS FALSE OR document_id = ANY(:document_ids))
+      AND (CAST(:doc_type AS text) IS NULL OR metadata->>'doc_type' = CAST(:doc_type AS text))
+      AND (
+            CAST(:filter_docs AS boolean) IS FALSE
+            OR document_id = ANY(CAST(:document_ids AS uuid[]))
+          )
     ORDER BY embedding <=> CAST(:query AS vector)
     LIMIT :k
-""").bindparams(bindparam("document_ids", expanding=False))
+""")
 
 UPSERT_SQL = text("""
     UPDATE document_chunks
        SET embedding = CAST(:embedding AS vector)
-     WHERE id = :chunk_id AND tenant_id = :tenant_id
+     WHERE id = CAST(:chunk_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)
 """)
 
 DELETE_SQL = text("""
     UPDATE document_chunks
        SET embedding = NULL
-     WHERE tenant_id = :tenant_id AND document_id = :document_id
+     WHERE tenant_id = CAST(:tenant_id AS uuid) AND document_id = CAST(:document_id AS uuid)
 """)
 
 
@@ -58,8 +63,8 @@ class PgVectorStore:
             result: CursorResult[None] = await self.session.execute(  # type: ignore[assignment]
                 UPSERT_SQL,
                 {
-                    "chunk_id": item.chunk_id,
-                    "tenant_id": tenant_id,
+                    "chunk_id": str(item.chunk_id),
+                    "tenant_id": str(tenant_id),
                     "embedding": _vector_literal(item.embedding),
                 },
             )
@@ -81,12 +86,12 @@ class PgVectorStore:
             await self.session.execute(
                 SEARCH_SQL,
                 {
-                    "tenant_id": tenant_id,
+                    "tenant_id": str(tenant_id),
                     "query": _vector_literal(query),
                     "k": k,
                     "doc_type": doc_type,
                     "filter_docs": bool(document_ids),
-                    "document_ids": document_ids or [],
+                    "document_ids": [str(d) for d in (document_ids or [])],
                 },
             )
         ).mappings()
@@ -104,7 +109,7 @@ class PgVectorStore:
 
     async def delete_document(self, tenant_id: UUID, document_id: UUID) -> int:
         result: CursorResult[None] = await self.session.execute(  # type: ignore[assignment]
-            DELETE_SQL, {"tenant_id": tenant_id, "document_id": document_id}
+            DELETE_SQL, {"tenant_id": str(tenant_id), "document_id": str(document_id)}
         )
         await self.session.flush()
         return result.rowcount or 0

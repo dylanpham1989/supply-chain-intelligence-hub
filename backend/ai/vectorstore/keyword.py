@@ -11,9 +11,9 @@ SEARCH_SQL = text("""
     SELECT id, document_id, content, metadata,
            ts_rank_cd(content_tsv, websearch_to_tsquery('english', :q)) AS score
     FROM document_chunks
-    WHERE tenant_id = :tenant_id
+    WHERE tenant_id = CAST(:tenant_id AS uuid)
       AND content_tsv @@ websearch_to_tsquery('english', :q)
-      AND (:doc_type IS NULL OR metadata->>'doc_type' = :doc_type)
+      AND (CAST(:doc_type AS text) IS NULL OR metadata->>'doc_type' = CAST(:doc_type AS text))
     ORDER BY score DESC
     LIMIT :k
 """)
@@ -37,7 +37,7 @@ class KeywordSearch:
         rows = (
             await self.session.execute(
                 SEARCH_SQL,
-                {"tenant_id": tenant_id, "q": query, "k": k, "doc_type": doc_type},
+                {"tenant_id": str(tenant_id), "q": query, "k": k, "doc_type": doc_type},
             )
         ).mappings()
 
