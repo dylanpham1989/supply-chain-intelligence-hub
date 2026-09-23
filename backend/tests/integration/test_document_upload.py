@@ -415,3 +415,61 @@ async def test_a_manifest_summary_chunk_is_written_for_retrieval(
     assert chunks[0]["meta"]["section"] == "summary"
     assert "42 shipments" in chunks[0]["content"]
     assert str(date.today().year) in chunks[0]["content"] or "20" in chunks[0]["content"]
+
+
+async def test_the_embedding_job_writes_vectors(
+    api: AsyncClient, session: AsyncSession, worker_session: None
+) -> None:
+    """Guards the gap between a chunk existing and being searchable.
+
+    Without this the ingest job can report success while every chunk stays
+    unvectorised, and retrieval silently returns nothing.
+    """
+    from sqlalchemy import func
+
+    from worker.tasks import embed_document
+
+    token = await _token(api)
+    accepted = await _upload(api, token, CONTRACT, "contract")
+    tenant = await _tenant_of(session, accepted["document_id"])
+    await _run_job(session, tenant, accepted["document_id"])
+
+    result = await embed_document({}, tenant, accepted["document_id"])
+
+    assert result["status"] == "embedded"
+    assert result["embedded"] > 0
+
+    unvectorised = (
+        await session.execute(
+            select(func.count())
+            .select_from(DocumentChunk)
+            .where(
+                DocumentChunk.document_id == accepted["document_id"],
+                DocumentChunk.embedding.is_(None),
+            )
+        )
+    ).scalar_one()
+    assert unvectorised == 0
+
+    document = (
+        await session.execute(select(Document).where(Document.id == accepted["document_id"]))
+    ).scalar_one()
+    assert document.embedding_model
+    assert document.embedding_dim == 384
+
+
+async def test_running_the_embedding_job_twice_embeds_nothing_new(
+    api: AsyncClient, session: AsyncSession, worker_session: None
+) -> None:
+    from worker.tasks import embed_document
+
+    token = await _token(api)
+    accepted = await _upload(api, token, CONTRACT, "contract")
+    tenant = await _tenant_of(session, accepted["document_id"])
+    await _run_job(session, tenant, accepted["document_id"])
+
+    first = await embed_document({}, tenant, accepted["document_id"])
+    second = await embed_document({}, tenant, accepted["document_id"])
+
+    assert first["embedded"] > 0
+    assert second["embedded"] == 0, "a repeat run should find nothing left to do"

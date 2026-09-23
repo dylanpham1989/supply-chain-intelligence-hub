@@ -51,6 +51,11 @@ def configure_logging(*, env: str = "local", level: str = "INFO") -> None:
     # We emit our own access line per request.
     logging.getLogger("uvicorn.access").disabled = True
 
+    # These are chatty at debug, and a worker log full of s3 transfer internals
+    # is a log nobody reads.
+    for name in ("botocore", "boto3", "s3transfer", "urllib3", "httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)  # type: ignore[no-any-return]
