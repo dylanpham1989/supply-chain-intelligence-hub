@@ -417,9 +417,15 @@ A bug found by running it: asyncpg infers parameter types from the statement, an
 `:param` compared against NULL gives it nothing to infer from, so an unfiltered search failed
 with "could not determine data type of parameter $3". Every optional parameter is cast now.
 
-Sizes: api image 723 MB with no torch in it, worker venv 1.5 GB of which torch is 652 MB, plus
-88 MB for the baked-in model. That is the cost of embedding locally; the alternative is a
-hosted embedding api, which trades the gigabytes for a key and a network dependency.
+A fourth, found by reading `docker history` rather than trusting the total: the layer that
+copies the source was 1.36 GB. A `.dockerignore` pattern without a glob is anchored to the
+root, so `backend/.venv` was never excluded and both images carried a copy of the local
+virtualenv alongside the one the build had just made. 1.2 GB of it in the worker, 206 MB in the
+api, and it had been there since phase 1. The api image drops from 723 MB to 419 MB.
+
+Sizes after that: api 419 MB with no torch in it, worker venv 1.5 GB of which torch is 652 MB,
+plus 88 MB for the baked-in model. That is the cost of embedding locally; a hosted embedding
+api trades the gigabytes for a key and a network dependency.
 
 282 backend tests, 91 percent coverage.
 
