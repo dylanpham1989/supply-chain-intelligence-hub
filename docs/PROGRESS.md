@@ -366,3 +366,61 @@ passed as a build arg and an env var, never committed.
 209 backend tests, 92 percent coverage.
 
 Next: phase 6, embeddings and retrieval.
+
+## 2026-09-23 - Phase 6, retrieval and grounded answers
+
+Ask a question, get an answer that cites the chunk it came from.
+
+Shape of it:
+- Embeddings from all-MiniLM-L6-v2, 384 dimensions, cpu, about 80 MB. Loaded once at worker
+  startup and run in a thread, because sentence-transformers is synchronous and would otherwise
+  hold the event loop for every other job.
+- Retrieval is hybrid. Vector search alone blurs exact strings like INV-2026-0412 or clause
+  4.2; keyword search alone misses a question phrased differently from the document. The two
+  result lists are merged with reciprocal rank fusion, which uses positions rather than scores,
+  because cosine runs 0 to 1 and ts_rank_cd has no upper bound and adding them means inventing
+  a conversion.
+- HNSW rather than IVFFlat. IVFFlat trains its lists on existing rows and a migration always
+  runs against an empty table, so it would build on nothing and report nothing wrong.
+- Aggregate questions go to sql. Retrieval returns the top k, so "how many shipments were late"
+  answered from an index is a guess with a number on it. The model proposes a json filter and
+  never sql; the filter is validated against a schema that forbids unknown keys, so the worst a
+  bad generation achieves is a validation failure. Regions are expanded in code, because asked
+  to list the EU a model produces a plausible subset and leaves a few members out.
+- The default provider is a mock that answers by extraction with no network call. CI and a
+  fresh clone run the whole pipeline with no key, and it separates two failures that look
+  identical from outside: bad retrieval and bad generation.
+
+The isolation tests were nearly worthless and the mutation testing is what showed it. Deleting
+the tenant predicate from both search statements left all ten passing, because the row-level
+security policy caught it. That is defence in depth working, and it also meant the tests said
+nothing about the statements. Two tests now scope the session to one tenant and ask the store
+for another: with the predicate they intersect to nothing, without it the other tenant's rows
+come back. Those two fail under the mutation; the other ten still pass, which is the right
+outcome for both layers.
+
+Worth recording for pinecone, which has no policy behind it: there the query filter is the only
+boundary, so testing it separately is not academic.
+
+Three bugs from the review:
+1. `Dockerfile.api` used `--no-dev`, which only drops the dev group. Adding ingest and ai to
+   the default groups for local work meant the api image was about to gain torch and pandas.
+   `--no-default-groups` is what was meant.
+2. torch resolves to the cuda build unless told otherwise, and the worker build was pulling
+   nvidia-cublas at 517 MB into a container with no gpu. 43 nvidia packages in the lock, now
+   zero. `tool.uv.sources` only reaches direct dependencies, so torch had to be declared
+   directly to point it at the cpu index.
+3. The embedder protocol was referenced by nothing, so it documented nothing. Coverage reported
+   it at 0 percent, which is how it surfaced.
+
+A bug found by running it: asyncpg infers parameter types from the statement, and a bare
+`:param` compared against NULL gives it nothing to infer from, so an unfiltered search failed
+with "could not determine data type of parameter $3". Every optional parameter is cast now.
+
+Sizes: api image 723 MB with no torch in it, worker venv 1.5 GB of which torch is 652 MB, plus
+88 MB for the baked-in model. That is the cost of embedding locally; the alternative is a
+hosted embedding api, which trades the gigabytes for a key and a network dependency.
+
+282 backend tests, 91 percent coverage.
+
+Next: phase 7, the dashboard.
