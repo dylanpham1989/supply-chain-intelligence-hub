@@ -7,11 +7,14 @@ from uuid import UUID
 
 from sqlalchemy import delete, select
 
+from ai.embeddings.hf_embedder import get_embedder
 from ai.ingestion.base import ParsedDoc, PermanentError, TransientError
 from ai.ingestion.chunker import SectionAwareChunker
 from ai.ingestion.cleaner import clean_pages
 from ai.ingestion.csv_parser import CsvParser
 from ai.ingestion.pdf_parser import PdfParser, extract_tables
+from ai.vectorstore.base import VectorItem
+from ai.vectorstore.pgvector_store import PgVectorStore
 from app.core.cache import invalidate_tags
 from app.core.logging import get_logger
 from app.core.storage import get_store
@@ -132,10 +135,75 @@ async def process_document(
     }
 
 
+EMBED_BATCH = 32
+
+
 async def embed_document(ctx: dict[str, Any], tenant_id: str, document_id: str) -> dict[str, Any]:
-    """Placeholder until the retrieval work lands."""
-    log.info("embed.skipped", tenant_id=tenant_id, document_id=document_id)
-    return {"status": "skipped"}
+    """Vectorise the chunks that do not have a vector yet.
+
+    Selecting on embedding IS NULL makes this idempotent without any extra
+    bookkeeping: a repeat run embeds whatever is still missing and nothing else.
+    """
+    tenant = UUID(tenant_id)
+    doc_id = UUID(document_id)
+    started = time.perf_counter()
+    embedder = get_embedder()
+    embedded = 0
+
+    async with tenant_session(tenant) as session:
+        pending = (
+            (
+                await session.execute(
+                    select(DocumentChunk)
+                    .where(
+                        DocumentChunk.document_id == doc_id,
+                        DocumentChunk.embedding.is_(None),
+                    )
+                    .order_by(DocumentChunk.chunk_index)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        store = PgVectorStore(session)
+        for start in range(0, len(pending), EMBED_BATCH):
+            batch = pending[start : start + EMBED_BATCH]
+            vectors = await embedder.encode([chunk.content for chunk in batch])
+            embedded += await store.upsert(
+                tenant,
+                [
+                    VectorItem(
+                        chunk_id=chunk.id,
+                        document_id=doc_id,
+                        content=chunk.content,
+                        embedding=vector,
+                        metadata=chunk.meta,
+                    )
+                    for chunk, vector in zip(batch, vectors, strict=True)
+                ],
+            )
+
+        document = (
+            await session.execute(select(Document).where(Document.id == doc_id))
+        ).scalar_one_or_none()
+        if document is not None:
+            # Recorded so a model change is visible rather than showing up as
+            # retrieval quietly getting worse.
+            document.embedding_model = embedder.model_name
+            document.embedding_dim = embedder.dimensions
+            await session.flush()
+
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    log.info(
+        "embed.completed",
+        tenant_id=tenant_id,
+        document_id=document_id,
+        embedded=embedded,
+        model=embedder.model_name,
+        duration_ms=elapsed_ms,
+    )
+    return {"status": "embedded", "embedded": embedded, "duration_ms": elapsed_ms}
 
 
 async def _parse(s3_key: str, doc_type: DocType) -> ParsedDoc:

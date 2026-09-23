@@ -366,3 +366,93 @@ passed as a build arg and an env var, never committed.
 209 backend tests, 92 percent coverage.
 
 Next: phase 6, embeddings and retrieval.
+
+## 2026-09-23 - Phase 6, retrieval and grounded answers
+
+Ask a question, get an answer that cites the chunk it came from.
+
+Shape of it:
+- Embeddings from all-MiniLM-L6-v2, 384 dimensions, cpu, about 80 MB. Loaded once at worker
+  startup and run in a thread, because sentence-transformers is synchronous and would otherwise
+  hold the event loop for every other job.
+- Retrieval is hybrid. Vector search alone blurs exact strings like INV-2026-0412 or clause
+  4.2; keyword search alone misses a question phrased differently from the document. The two
+  result lists are merged with reciprocal rank fusion, which uses positions rather than scores,
+  because cosine runs 0 to 1 and ts_rank_cd has no upper bound and adding them means inventing
+  a conversion.
+- HNSW rather than IVFFlat. IVFFlat trains its lists on existing rows and a migration always
+  runs against an empty table, so it would build on nothing and report nothing wrong.
+- Aggregate questions go to sql. Retrieval returns the top k, so "how many shipments were late"
+  answered from an index is a guess with a number on it. The model proposes a json filter and
+  never sql; the filter is validated against a schema that forbids unknown keys, so the worst a
+  bad generation achieves is a validation failure. Regions are expanded in code, because asked
+  to list the EU a model produces a plausible subset and leaves a few members out.
+- The default provider is a mock that answers by extraction with no network call. CI and a
+  fresh clone run the whole pipeline with no key, and it separates two failures that look
+  identical from outside: bad retrieval and bad generation.
+
+The isolation tests were nearly worthless and the mutation testing is what showed it. Deleting
+the tenant predicate from both search statements left all ten passing, because the row-level
+security policy caught it. That is defence in depth working, and it also meant the tests said
+nothing about the statements. Two tests now scope the session to one tenant and ask the store
+for another: with the predicate they intersect to nothing, without it the other tenant's rows
+come back. Those two fail under the mutation; the other ten still pass, which is the right
+outcome for both layers.
+
+Worth recording for pinecone, which has no policy behind it: there the query filter is the only
+boundary, so testing it separately is not academic.
+
+Three bugs from the review:
+1. `Dockerfile.api` used `--no-dev`, which only drops the dev group. Adding ingest and ai to
+   the default groups for local work meant the api image was about to gain torch and pandas.
+   `--no-default-groups` is what was meant.
+2. torch resolves to the cuda build unless told otherwise, and the worker build was pulling
+   nvidia-cublas at 517 MB into a container with no gpu. 43 nvidia packages in the lock, now
+   zero. `tool.uv.sources` only reaches direct dependencies, so torch had to be declared
+   directly to point it at the cpu index.
+3. The embedder protocol was referenced by nothing, so it documented nothing. Coverage reported
+   it at 0 percent, which is how it surfaced.
+
+A bug found by running it: asyncpg infers parameter types from the statement, and a bare
+`:param` compared against NULL gives it nothing to infer from, so an unfiltered search failed
+with "could not determine data type of parameter $3". Every optional parameter is cast now.
+
+A fourth, found by reading `docker history` rather than trusting the total: the layer that
+copies the source was 1.36 GB. A `.dockerignore` pattern without a glob is anchored to the
+root, so `backend/.venv` was never excluded and both images carried a copy of the local
+virtualenv alongside the one the build had just made. 1.2 GB of it in the worker, 206 MB in the
+api, and it had been there since phase 1. The api image drops from 723 MB to 419 MB.
+
+Sizes after that: api 419 MB with no torch in it, worker venv 1.5 GB of which torch is 652 MB,
+plus 88 MB for the baked-in model. That is the cost of embedding locally; a hosted embedding
+api trades the gigabytes for a key and a network dependency.
+
+Three more the tests did not catch, all found by running the stack and reading what came back:
+
+4. **The embedding job was never written.** The commit claimed it and shipped the placeholder;
+   the replacement had missed its anchor after a reformat and nothing checked. Ingest reported
+   success, chunks existed, no vectors, retrieval returned nothing, and no error anywhere. Two
+   tests now assert vectors are written and that a repeat run finds nothing left to do.
+5. **The api had no embedding model.** Answering a question embeds the question, on the read
+   path, in the api process, so `/ask` returned 500. Keeping torch out of that image was wrong
+   because the read path had not been traced before optimising it. The api carries the ai group
+   now; keeping it small would mean a separate embedding service or an onnx build of the same
+   model, and neither is worth the moving parts here.
+6. **Structured questions answered with the wrong number.** The offline mock returns no json,
+   so the filter fell back to empty and "how many shipments were delayed" came back with the
+   count of everything. That is worse than an error because it looks like an answer. A
+   rule-based extractor reads the filter from the question instead. One detail worth keeping:
+   "late" maps to comparing arrival against estimate, not to `status = 'delayed'`, because a
+   shipment can be marked delivered and still have arrived late.
+
+Two smaller ones in the mock, both visible only in a real answer: it repeated the same clause
+three times when that clause appeared in three chunks, and it quoted the source header
+`(contract.pdf, page 4, 4.2 Late Delivery)` back as if it were content.
+
+Worth stating plainly: 294 tests were green while the system could not answer a single
+question. Every one of those three came from running it, not from the suite.
+
+296 backend tests, 91 percent coverage. Image sizes: api 2.21 GB and worker 2.37 GB, both
+carrying torch and the model, against 419 MB for an api with neither.
+
+Next: phase 7, the dashboard.
