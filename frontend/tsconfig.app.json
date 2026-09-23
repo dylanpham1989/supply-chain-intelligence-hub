@@ -20,7 +20,10 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "exactOptionalPropertyTypes": true,
+    // exactOptionalPropertyTypes is off on purpose. React props are routinely
+    // passed as `prop={maybeUndefined}`, and third-party prop types such as
+    // react-router's NavLinkProps are not written to accept it, so the flag
+    // produces casts rather than caught bugs.
 
     /* Linting */
     "noUnusedLocals": true,
