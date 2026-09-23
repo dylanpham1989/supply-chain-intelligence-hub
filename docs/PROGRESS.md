@@ -456,3 +456,53 @@ question. Every one of those three came from running it, not from the suite.
 carrying torch and the model, against 419 MB for an api with neither.
 
 Next: phase 7, the dashboard.
+
+## 2026-09-23 - Phase 7, the dashboard
+
+Seven pages: sign in, sign up, dashboard, shipments, suppliers, documents, ask, alerts and
+settings.
+
+Shape of it:
+- Types are generated from the running api's openapi schema, so a backend change the frontend
+  has not caught up with is a type error rather than a runtime surprise.
+- The access token lives in a module variable, not in storage. An xss can read localStorage and
+  cannot read a closure. The refresh cookie survives a reload, and the app exchanges it for a
+  token at startup behind a splash, so the login page does not flash on every reload.
+- One refresh at a time. Five requests expiring together would otherwise fire five refreshes,
+  rotation would revoke four of each other, and the user would be signed out for no reason they
+  could see. There is a test with five parallel requests that asserts exactly one refresh.
+- Filters live in the url. A reload keeps them, the back button works, and a filtered view is
+  shareable by copying the address bar. Changing a filter resets to page one, because staying on
+  page three of a different result set shows an empty table.
+- Server-side paging and sorting only. Fetching everything to sort it in the browser stops
+  working at the first customer with real data.
+- Every chart sits in a fixed-height box, because ResponsiveContainer measures its parent and a
+  parent with no resolved height measures zero and renders nothing at all.
+- The document list polls while anything is in flight and stops as soon as everything reaches a
+  terminal state. A fixed interval would keep asking forever and for nothing.
+- Answers render as text. Rendering model output as html would let an uploaded document decide
+  what runs in the browser.
+- Signing out clears the query cache, otherwise the next account to sign in on the same browser
+  sees the previous one's lists before the refetch lands.
+
+`exactOptionalPropertyTypes` is off, and the reason is in the tsconfig: react props are
+routinely passed as `prop={maybeUndefined}` and third-party prop types such as react-router's
+`NavLinkProps` are not written to accept it, so the flag produced casts rather than caught
+bugs. `strict` and `noUncheckedIndexedAccess` stay on and did catch real ones.
+
+Review findings:
+1. **The browser was calling the api cross-origin.** `VITE_API_BASE_URL` pointed at
+   `localhost:8000`, which bypassed both the vite dev proxy and the nginx proxy built for this,
+   added a preflight to every request, and would have baked a hostname into a production
+   bundle. An empty base url means relative paths on one origin, proxied in both environments.
+2. **The side panels could not be closed from a keyboard.** The backdrop click and the close
+   button are both mouse-only. Extracted a `SidePanel` that closes on Escape, moves focus
+   inside on open, and announces itself as a dialog.
+3. **`·` rendered as five literal characters.** It is an escape inside a template literal
+   and plain text inside a jsx node, and the supplier panel was showing
+   "6 shipments · 1 late" on screen. Only visible by looking at the page.
+
+30 frontend tests. Initial bundle 92 kB gzipped, with the charts split into the dashboard's own
+chunk at 117 kB so nothing else pays for them.
+
+Next: phase 8 is the optional risk classifier, or straight to observability.
