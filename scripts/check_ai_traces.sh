@@ -35,9 +35,16 @@ if hits=$(git grep -nI $'\xf0\x9f\xa4\x96' -- . ":!$SELF" 2>/dev/null) && [ -n "
   printf '%s\n' "$hits" | head -5 | sed 's/^/    /'
 fi
 
-# 3. Em dash: a reliable tell of generated prose, and never needed in source.
-if hits=$(git grep -nI -e $'\xe2\x80\x94' -- '*.md' '*.py' '*.ts' '*.tsx' '*.yml' '*.yaml' '*.tf' ":!$SELF" 2>/dev/null) && [ -n "$hits" ]; then
-  report "em dash in tracked files"
+# 3. Em dash: a tell of generated prose. Checked in markdown, and in source only
+#    on comment lines, because in code it is usually a glyph in a string, such as
+#    the placeholder a table shows for a missing value.
+if hits=$(git grep -nI -e $'\xe2\x80\x94' -- '*.md' ":!$SELF" 2>/dev/null) && [ -n "$hits" ]; then
+  report "em dash in prose"
+  printf '%s\n' "$hits" | head -5 | sed 's/^/    /'
+fi
+if hits=$(git grep -nI -e $'\xe2\x80\x94' -- '*.py' '*.ts' '*.tsx' '*.yml' '*.yaml' '*.tf' ":!$SELF" 2>/dev/null \
+            | grep -E ':[0-9]+: *(//|#|\*|<!--)' ) && [ -n "$hits" ]; then
+  report "em dash in a source comment"
   printf '%s\n' "$hits" | head -5 | sed 's/^/    /'
 fi
 
