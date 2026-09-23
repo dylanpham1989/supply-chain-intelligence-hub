@@ -10,7 +10,13 @@ from ai.llm.factory import get_llm
 from ai.rag import prompts
 from ai.rag.retriever import TOP_K, HybridRetriever
 from ai.rag.router import Route, route
-from ai.rag.structured import FILTER_SCHEMA_HINT, describe, expand_regions, parse_filter
+from ai.rag.structured import (
+    FILTER_SCHEMA_HINT,
+    describe,
+    expand_regions,
+    extract_filter,
+    parse_filter,
+)
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -136,9 +142,9 @@ class RagPipeline:
 
         parsed = parse_filter(response.text)
         if parsed is None:
-            # The mock cannot produce json, and a hosted model sometimes will not
-            # either. An empty filter still answers "list all late shipments".
-            from ai.rag.structured import ShipmentQueryFilter
-
-            parsed = ShipmentQueryFilter()
+            # The mock never returns json and a hosted model sometimes will not
+            # either. Reading the filter out of the question is worse than a good
+            # model and much better than an empty filter, which would answer
+            # "how many were delayed" with the count of everything.
+            parsed = extract_filter(question)
         return expand_regions(question, parsed)

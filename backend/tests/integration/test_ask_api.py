@@ -160,6 +160,7 @@ async def test_an_aggregate_question_goes_to_sql(api: AsyncClient, session: Asyn
 
     body = response.json()
     assert body["route"] == "structured"
+    assert body["filters"].get("status") == "delayed", body["filters"]
     assert len(body["shipments"]) == 3
     assert "3 shipments match" in body["answer"]
 
@@ -178,6 +179,9 @@ async def test_a_region_in_the_question_is_expanded(
     body = response.json()
     assert body["route"] == "structured"
     assert len(body["filters"]["dest_countries"]) == 27
+    # "late" is about arrival, so it must not also pin the status column.
+    assert body["filters"].get("late_only") is True
+    assert "status" not in body["filters"]
 
 
 async def test_the_question_is_recorded(api: AsyncClient, session: AsyncSession) -> None:

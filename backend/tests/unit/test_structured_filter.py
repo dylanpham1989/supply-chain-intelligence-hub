@@ -6,10 +6,13 @@ bad generation achieves is a validation failure.
 
 from datetime import date
 
+import pytest
+
 from ai.rag.structured import (
     EU_COUNTRIES,
     ShipmentQueryFilter,
     expand_regions,
+    extract_filter,
     parse_filter,
 )
 
@@ -79,3 +82,49 @@ def test_a_question_with_no_region_is_unchanged() -> None:
 
 def test_the_default_limit_is_bounded() -> None:
     assert ShipmentQueryFilter().limit == 50
+
+
+# The extractor is the fallback that runs whenever the model does not return
+# usable json, which for the offline default is always.
+EXTRACTION_CASES = [
+    ("How many shipments were delayed?", {"status": "delayed"}),
+    ("Show all late deliveries", {"late_only": True}),
+    ("list all cancelled shipments", {"status": "cancelled"}),
+    ("how many air shipments are there", {"mode": "air"}),
+    ("total value of ocean freight", {"mode": "ocean"}),
+    ("top 5 suppliers", {"limit": 5}),
+]
+
+
+@pytest.mark.parametrize(("question", "expected"), EXTRACTION_CASES)
+def test_a_filter_is_read_out_of_the_question(question: str, expected: dict[str, object]) -> None:
+    extracted = extract_filter(question).model_dump(exclude_defaults=True)
+
+    for key, value in expected.items():
+        assert extracted.get(key) == value, (question, key, extracted)
+
+
+def test_late_is_about_arrival_not_the_status_column() -> None:
+    """A shipment can be marked delivered and still have arrived late."""
+    extracted = extract_filter("show all late deliveries to the EU")
+
+    assert extracted.late_only is True
+    assert extracted.status is None
+
+
+def test_a_quarter_becomes_a_date_range() -> None:
+    extracted = extract_filter("late deliveries in Q1 2026")
+
+    assert extracted.eta_from == date(2026, 1, 1)
+    assert extracted.eta_to is not None
+    assert extracted.eta_to.month == 3
+
+
+def test_a_question_with_no_filter_words_extracts_nothing() -> None:
+    extracted = extract_filter("how many shipments are there")
+
+    assert extracted.model_dump(exclude_defaults=True) == {}
+
+
+def test_an_extracted_limit_is_bounded() -> None:
+    assert extract_filter("top 99999 suppliers").limit == 200

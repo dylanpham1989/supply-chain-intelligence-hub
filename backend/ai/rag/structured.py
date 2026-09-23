@@ -112,3 +112,63 @@ def expand_regions(question: str, filters: ShipmentQueryFilter) -> ShipmentQuery
 
 def describe(filters: ShipmentQueryFilter) -> dict[str, Any]:
     return filters.model_dump(exclude_none=True, exclude_defaults=True)
+
+
+STATUS_WORDS = {
+    "delayed": "delayed",
+    "late": "delayed",
+    "delivered": "delivered",
+    "arrived": "delivered",
+    "in transit": "in_transit",
+    "planned": "planned",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+}
+MODE_WORDS = {"air": "air", "ocean": "ocean", "sea": "ocean", "road": "road", "rail": "rail"}
+QUARTERS = {
+    "q1": (1, 3),
+    "q2": (4, 6),
+    "q3": (7, 9),
+    "q4": (10, 12),
+}
+YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+
+def extract_filter(question: str) -> ShipmentQueryFilter:
+    """Read a filter straight out of the question.
+
+    Used when the model does not return usable json, which the offline mock
+    never does. Without it a structured question falls back to an empty filter
+    and answers "50 shipments match" to "how many were delayed", which is worse
+    than an error because it looks like an answer.
+    """
+    lowered = question.lower()
+    values: dict[str, Any] = {}
+
+    for word, status in STATUS_WORDS.items():
+        if re.search(rf"\b{re.escape(word)}\b", lowered):
+            values["status"] = status
+            break
+
+    for word, mode in MODE_WORDS.items():
+        if re.search(rf"\b{re.escape(word)}\b", lowered):
+            values["mode"] = mode
+            break
+
+    if re.search(r"\blate\b|\bbehind schedule\b|\boverdue\b", lowered):
+        values["late_only"] = True
+        # "late deliveries" is about arrival, not about the status column.
+        values.pop("status", None)
+
+    year = YEAR_RE.search(lowered)
+    for name, (first, last) in QUARTERS.items():
+        if re.search(rf"\b{name}\b", lowered):
+            y = int(year.group(1)) if year else date.today().year
+            values["eta_from"] = date(y, first, 1)
+            values["eta_to"] = date(y + ((last == 12 and 0) or 0), last, 28 if last == 2 else 30)
+            break
+
+    if match := re.search(r"\btop (\d+)\b", lowered):
+        values["limit"] = min(200, max(1, int(match.group(1))))
+
+    return ShipmentQueryFilter.model_validate(values)
