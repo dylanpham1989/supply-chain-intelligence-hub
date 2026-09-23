@@ -42,6 +42,13 @@ ai = [
     "scikit-learn>=1.6",
     "joblib>=1.4",
 ]
+# Optional providers. The mock needs none of them, which is what lets CI and a
+# fresh clone run the whole pipeline with no key.
+llm = [
+    "anthropic>=0.40",
+    "openai>=1.60",
+    "huggingface-hub>=0.27",
+]
 # Parsing runs in the worker, so the api image does not carry it.
 ingest = [
     "pypdf>=5.1",
@@ -51,7 +58,7 @@ ingest = [
 ]
 
 [tool.uv]
-default-groups = ["dev", "ingest"]
+default-groups = ["dev", "ingest", "ai"]
 
 [build-system]
 requires = ["hatchling"]
@@ -89,7 +96,20 @@ plugins = ["pydantic.mypy"]
 exclude = ["^alembic/", "^tests/"]
 
 [[tool.mypy.overrides]]
-module = ["jose.*", "passlib.*", "arq.*", "uuid_extensions.*", "boto3.*", "botocore.*", "pdfplumber.*"]
+# Optional or untyped third-party packages.
+module = [
+    "jose.*",
+    "passlib.*",
+    "arq.*",
+    "uuid_extensions.*",
+    "boto3.*",
+    "botocore.*",
+    "pdfplumber.*",
+    "sentence_transformers.*",
+    "anthropic.*",
+    "openai.*",
+    "huggingface_hub.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
