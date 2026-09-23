@@ -112,8 +112,9 @@ services:
       dockerfile: infra/docker/Dockerfile.web
       target: dev
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-      # not localhost: inside this container that is the web container
+      # Deliberately unset. An empty base url means relative paths, which the
+      # dev server proxies here and nginx proxies in a deployment: one origin,
+      # no preflight, and no host baked into the bundle.
       VITE_API_PROXY: http://api:8000
     ports:
       - "5173:5173"
