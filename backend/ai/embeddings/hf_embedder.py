@@ -2,6 +2,7 @@ from typing import Any
 
 import anyio
 
+from ai.embeddings.base import Embedder
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -67,10 +68,10 @@ class HuggingFaceEmbedder:
         await anyio.to_thread.run_sync(self._load)
 
 
-_embedder: HuggingFaceEmbedder | None = None
+_embedder: Embedder | None = None
 
 
-def get_embedder() -> HuggingFaceEmbedder:
+def get_embedder() -> Embedder:
     global _embedder
     if _embedder is None:
         _embedder = HuggingFaceEmbedder()

@@ -39,6 +39,12 @@ dev = [
 ]
 ai = [
     "sentence-transformers>=3.3",
+    # Declared directly so the cpu index below applies. tool.uv.sources only
+    # reaches direct dependencies, and torch is otherwise transitive.
+    "torch>=2.4",
+]
+# Only the risk classifier needs these, and that is its own phase.
+ml = [
     "scikit-learn>=1.6",
     "joblib>=1.4",
 ]
@@ -59,6 +65,16 @@ ingest = [
 
 [tool.uv]
 default-groups = ["dev", "ingest", "ai"]
+
+# torch resolves to the cuda build by default, which drags in several gigabytes
+# of nvidia libraries. Nothing here runs on a gpu.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
 
 [build-system]
 requires = ["hatchling"]
@@ -128,4 +144,10 @@ omit = ["*/alembic/*", "*/tests/*", "*/__main__.py"]
 [tool.coverage.report]
 fail_under = 70
 show_missing = true
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.$",
+    "@(abc\\.)?abstractmethod",
+]

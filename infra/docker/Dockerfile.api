@@ -16,8 +16,11 @@ COPY backend/pyproject.toml backend/uv.lock ./
 # Separate layer so touching source does not reinstall deps. The cache mount
 # survives layer invalidation, so changing one dependency downloads one wheel
 # rather than all of them.
+#
+# --no-default-groups, not --no-dev: the ingest and ai groups are defaults for
+# local work, and --no-dev would leave torch and pandas in this image.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-default-groups --no-install-project
 
 
 FROM python:3.12-slim AS runtime
