@@ -70,3 +70,40 @@ async def test_the_mock_declines_when_the_context_has_nothing() -> None:
     )
 
     assert response.text == "I could not find this in the indexed documents."
+
+
+async def test_the_mock_does_not_repeat_the_same_sentence() -> None:
+    """The same clause turns up in several chunks; saying it three times reads badly."""
+    provider = MockProvider()
+    clause = "The Supplier shall pay a penalty of 2 percent of the shipment value."
+
+    response = await provider.complete(
+        system="ignored",
+        user=(
+            f"Context:\n[1] (a.pdf)\n{clause}\n\n"
+            f"[2] (a.pdf)\n{clause}\n\n"
+            f"[3] (a.pdf)\n{clause}\n\n"
+            "Question: What is the penalty for late delivery?"
+        ),
+    )
+
+    assert response.text.count("2 percent") == 1
+
+
+async def test_the_mock_does_not_quote_the_source_header_back() -> None:
+    """ "[1] (contract.pdf, page 4, 4.2 Late Delivery)" is provenance, not an answer."""
+    provider = MockProvider()
+
+    response = await provider.complete(
+        system="ignored",
+        user=(
+            "Context:\n"
+            "[1] (contract.pdf, page 4, 4.2 Late Delivery)\n"
+            "The Supplier shall pay a penalty of 2 percent of the shipment value.\n\n"
+            "Question: What is the penalty for late delivery?"
+        ),
+    )
+
+    assert "contract.pdf" not in response.text
+    assert "page 4" not in response.text
+    assert "2 percent" in response.text

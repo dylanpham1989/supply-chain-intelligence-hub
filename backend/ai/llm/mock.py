@@ -97,7 +97,21 @@ class MockProvider:
         wanted = _tokens(question)
         scored = [(source, sentence, _overlap(sentence, wanted)) for source, sentence in sentences]
         scored.sort(key=lambda row: row[2], reverse=True)
-        best = [row for row in scored if row[2] > 0][:MAX_SENTENCES]
+
+        # The same clause often turns up in more than one chunk, and repeating it
+        # back three times reads like a stutter.
+        best: list[tuple[int, str, float]] = []
+        seen: set[str] = set()
+        for source, sentence, score in scored:
+            if score <= 0:
+                continue
+            key = _normalise(sentence)
+            if key in seen:
+                continue
+            seen.add(key)
+            best.append((source, sentence, score))
+            if len(best) == MAX_SENTENCES:
+                break
 
         if not best:
             return self._respond(NOT_FOUND, started, user)
@@ -129,14 +143,20 @@ def _sentences_with_sources(context: str) -> list[tuple[int, str]]:
     for line in context.splitlines():
         match = CITATION_RE.match(line.strip())
         if match:
+            # The rest of a "[1] (file.pdf, page 4, 4.2 Late Delivery)" line is
+            # provenance, not something to quote back as an answer.
             current = int(match.group(1))
-            line = line[match.end() :]
+            continue
         if current is None:
             continue
         for sentence in SENTENCE_RE.split(line):
             if len(sentence.strip()) > 20:
                 out.append((current, sentence.strip()))
     return out
+
+
+def _normalise(sentence: str) -> str:
+    return " ".join(sentence.lower().split())
 
 
 def _tokens(text: str) -> set[str]:

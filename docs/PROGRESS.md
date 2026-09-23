@@ -427,6 +427,32 @@ Sizes after that: api 419 MB with no torch in it, worker venv 1.5 GB of which to
 plus 88 MB for the baked-in model. That is the cost of embedding locally; a hosted embedding
 api trades the gigabytes for a key and a network dependency.
 
-282 backend tests, 91 percent coverage.
+Three more the tests did not catch, all found by running the stack and reading what came back:
+
+4. **The embedding job was never written.** The commit claimed it and shipped the placeholder;
+   the replacement had missed its anchor after a reformat and nothing checked. Ingest reported
+   success, chunks existed, no vectors, retrieval returned nothing, and no error anywhere. Two
+   tests now assert vectors are written and that a repeat run finds nothing left to do.
+5. **The api had no embedding model.** Answering a question embeds the question, on the read
+   path, in the api process, so `/ask` returned 500. Keeping torch out of that image was wrong
+   because the read path had not been traced before optimising it. The api carries the ai group
+   now; keeping it small would mean a separate embedding service or an onnx build of the same
+   model, and neither is worth the moving parts here.
+6. **Structured questions answered with the wrong number.** The offline mock returns no json,
+   so the filter fell back to empty and "how many shipments were delayed" came back with the
+   count of everything. That is worse than an error because it looks like an answer. A
+   rule-based extractor reads the filter from the question instead. One detail worth keeping:
+   "late" maps to comparing arrival against estimate, not to `status = 'delayed'`, because a
+   shipment can be marked delivered and still have arrived late.
+
+Two smaller ones in the mock, both visible only in a real answer: it repeated the same clause
+three times when that clause appeared in three chunks, and it quoted the source header
+`(contract.pdf, page 4, 4.2 Late Delivery)` back as if it were content.
+
+Worth stating plainly: 294 tests were green while the system could not answer a single
+question. Every one of those three came from running it, not from the suite.
+
+296 backend tests, 91 percent coverage. Image sizes: api 2.21 GB and worker 2.37 GB, both
+carrying torch and the model, against 419 MB for an api with neither.
 
 Next: phase 7, the dashboard.
