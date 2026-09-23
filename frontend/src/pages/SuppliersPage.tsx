@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { suppliers } from '../api'
 import { Badge, Button, Card, EmptyState, Skeleton } from '../components/ui'
+import { SidePanel } from '../components/ui/SidePanel'
 import { useFilters } from '../hooks/use-filters'
 import { days, rate } from '../lib/format'
 import { qk } from '../lib/query-keys'
@@ -103,59 +104,46 @@ function PerformancePanel({ supplier, onClose }: { supplier: Supplier; onClose: 
   })
 
   return (
-    <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
-      <aside
-        className="h-full w-full max-w-md overflow-y-auto bg-(--color-surface) p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">{supplier.name}</h2>
-            <p className="text-sm text-(--color-ink-muted)">
-              {supplier.country} · {supplier.category}
-            </p>
-          </div>
-          <Button variant="ghost" onClick={onClose} aria-label="Close">
-            Close
-          </Button>
-        </header>
+    <SidePanel
+      title={supplier.name}
+      subtitle={`${supplier.country} · ${supplier.category}`}
+      onClose={onClose}
+    >
+      {query.isPending ? (
+        <Skeleton className="h-40 w-full" />
+      ) : query.data ? (
+        <div className="flex flex-col gap-4">
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <Stat label="Shipments" value={String(query.data.shipments)} />
+            <Stat label="Delivered" value={String(query.data.delivered)} />
+            <Stat label="Late" value={String(query.data.late)} />
+            <Stat label="On time" value={rate(query.data.on_time_rate)} />
+            <Stat label="Average slip" value={days(query.data.avg_delay_days)} />
+          </dl>
 
-        {query.isPending ? (
-          <Skeleton className="h-40 w-full" />
-        ) : query.data ? (
-          <div className="flex flex-col gap-4">
-            <dl className="grid grid-cols-2 gap-3 text-sm">
-              <Stat label="Shipments" value={String(query.data.shipments)} />
-              <Stat label="Delivered" value={String(query.data.delivered)} />
-              <Stat label="Late" value={String(query.data.late)} />
-              <Stat label="On time" value={rate(query.data.on_time_rate)} />
-              <Stat label="Average slip" value={days(query.data.avg_delay_days)} />
-            </dl>
-
-            {query.data.monthly.length > 0 && (
-              <div>
-                <h3 className="mb-2 text-xs tracking-wide text-(--color-ink-muted) uppercase">
-                  By month
-                </h3>
-                <ul className="flex flex-col gap-1 text-sm">
-                  {query.data.monthly.map((month) => (
-                    <li key={month.month} className="flex justify-between">
-                      <span className="text-(--color-ink-muted)">{month.month}</span>
-                      <span className="tabular-nums">
-                        {month.shipments} shipments
-                        {month.late > 0 && (
-                          <span className="text-(--color-bad)"> · {month.late} late</span>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </aside>
-    </div>
+          {query.data.monthly.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs tracking-wide text-(--color-ink-muted) uppercase">
+                By month
+              </h3>
+              <ul className="flex flex-col gap-1 text-sm">
+                {query.data.monthly.map((month) => (
+                  <li key={month.month} className="flex justify-between">
+                    <span className="text-(--color-ink-muted)">{month.month}</span>
+                    <span className="tabular-nums">
+                      {month.shipments} shipments
+                      {month.late > 0 && (
+                        <span className="text-(--color-bad)"> · {month.late} late</span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </SidePanel>
   )
 }
 

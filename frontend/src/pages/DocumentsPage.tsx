@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { documents } from '../api'
 import { Button, Card, EmptyState } from '../components/ui'
+import { SidePanel } from '../components/ui/SidePanel'
 import { DataTable, type Column } from '../components/ui/DataTable'
 import { DocStatusBadge } from '../components/ui/status'
 import { useAuth } from '../hooks/auth-context'
@@ -180,43 +181,31 @@ function ChunkPanel({ document, onClose }: { document: Document; onClose: () => 
   })
 
   return (
-    <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
-      <aside
-        className="h-full w-full max-w-2xl overflow-y-auto bg-(--color-surface) p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">{document.filename}</h2>
-            <p className="text-sm text-(--color-ink-muted)">
-              {document.doc_type} · {document.page_count ?? 0} pages
-            </p>
-          </div>
-          <Button variant="ghost" onClick={onClose} aria-label="Close">
-            Close
-          </Button>
-        </header>
-
-        {document.status !== 'indexed' ? (
-          <EmptyState
-            title={document.status === 'failed' ? 'Processing failed' : 'Still processing'}
-            hint={document.error ?? 'Chunks appear once indexing finishes.'}
-          />
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {(query.data?.items ?? []).map((chunk) => (
-              <li key={chunk.id} className="rounded-lg bg-(--color-surface-raised) p-3 text-sm">
-                <p className="mb-1 text-xs text-(--color-ink-muted)">
-                  #{chunk.chunk_index}
-                  {chunk.page_no ? ` · page ${chunk.page_no}` : ''}
-                  {chunk.meta?.section ? ` · ${String(chunk.meta.section)}` : ''}
-                </p>
-                <p className="whitespace-pre-wrap">{chunk.content}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
-    </div>
+    <SidePanel
+      title={document.filename}
+      subtitle={`${document.doc_type} · ${document.page_count ?? 0} pages`}
+      onClose={onClose}
+      width="max-w-2xl"
+    >
+      {document.status !== 'indexed' ? (
+        <EmptyState
+          title={document.status === 'failed' ? 'Processing failed' : 'Still processing'}
+          hint={document.error ?? 'Chunks appear once indexing finishes.'}
+        />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {(query.data?.items ?? []).map((chunk) => (
+            <li key={chunk.id} className="rounded-lg bg-(--color-surface-raised) p-3 text-sm">
+              <p className="mb-1 text-xs text-(--color-ink-muted)">
+                #{chunk.chunk_index}
+                {chunk.page_no ? ` · page ${chunk.page_no}` : ''}
+                {chunk.meta?.section ? ` · ${String(chunk.meta.section)}` : ''}
+              </p>
+              <p className="whitespace-pre-wrap">{chunk.content}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SidePanel>
   )
 }
