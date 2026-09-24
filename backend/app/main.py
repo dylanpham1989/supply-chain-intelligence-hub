@@ -20,6 +20,7 @@ from app.core import metrics
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging, get_logger
+from app.core.storage import get_store
 from app.db.session import engine
 from app.middleware.access_log import AccessLogMiddleware
 from app.middleware.metrics import MetricsMiddleware
@@ -52,6 +53,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.redis = redis
     app.state.queue = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+
+    # Readiness checks that the bucket is there, so something has to put it
+    # there before the first probe. Doing it on the upload path instead was a
+    # deadlock: no bucket means never ready, and never ready means no upload.
+    # A failure is not fatal; readiness will report it.
+    try:
+        await get_store().ensure_bucket()
+    except Exception as exc:
+        log.warning("storage.bucket_unavailable", error=str(exc))
 
     # Answering a question embeds it, so the model loads here rather than inside
     # whichever request happens to be first. A failure is not fatal: health, auth

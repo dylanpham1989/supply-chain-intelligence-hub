@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    app: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      serviceAccountName: scih
+      # Longer than the 300s arq job timeout plus room to finish writing, so a
+      # rollout never cuts an ingestion in half and leaves a document half
+      # indexed. The two numbers have to be read together.
+      terminationGracePeriodSeconds: 320
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/dylanpham1989/scih-worker:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          # torch plus the sentence-transformers model is about 1.2Gi resident.
+          # requests equal to limits puts this pod in the Guaranteed QoS class,
+          # so a node under pressure evicts something else first and a job in
+          # flight is not lost.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          # The worker serves no traffic, so there is nothing to probe over
+          # HTTP. A liveness probe that cannot tell a busy worker from a stuck
+          # one is worse than none, so this only asks whether the process is
+          # still there.
+          startupProbe:
+            exec:
+              command: ["pgrep", "-f", "arq"]
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command: ["pgrep", "-f", "arq"]
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

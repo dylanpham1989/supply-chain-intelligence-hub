@@ -1,0 +1,41 @@
+# A laptop running kind has one node and no room for the cloud numbers. Only
+# the requests move: limits stay where they are, so an OOMKill here would still
+# be an OOMKill in a cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: 100m
+              memory: 700Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1200Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

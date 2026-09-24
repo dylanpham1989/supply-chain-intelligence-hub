@@ -1,0 +1,27 @@
+# Scaling a queue worker on CPU is the wrong signal. The worker spends most of
+# its time waiting on S3 and Postgres, so CPU stays low while the queue backs
+# up to a thousand jobs and nothing scales out. The right signal is queue depth.
+#
+# That needs KEDA (or prometheus-adapter) installed in the cluster, which the
+# local kind cluster deliberately does not have. The manifest is validated with
+# `kubectl apply --dry-run=client` and left here as the deployment shape, not
+# as something the demo runs.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+spec:
+  scaleTargetRef:
+    name: worker
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  pollingInterval: 15
+  # Long enough that a burst of uploads does not scale back in before the last
+  # job is picked up.
+  cooldownPeriod: 300
+  triggers:
+    - type: redis
+      metadata:
+        addressFromEnv: REDIS_HOST_PORT
+        listName: arq:queue
+        listLength: "10"

@@ -1,0 +1,91 @@
+# A Job rather than an init container. An init container runs once per pod, so
+# two api replicas would start two `alembic upgrade head` at the same time and
+# race for the version table. A Job runs once, and the rollout waits for it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: scih
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # `kubectl apply -k` creates everything at once, so without this the Job
+        # starts before Postgres has a pod and burns its retries on DNS. Waiting
+        # here keeps a single apply correct instead of needing the caller to
+        # apply twice in the right order.
+        - name: wait-for-postgres
+          image: ghcr.io/dylanpham1989/scih-api:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import os, socket, time
+              from urllib.parse import urlparse
+
+              url = urlparse(os.environ["DATABASE_OWNER_URL"].split("+")[0] + "://" + os.environ["DATABASE_OWNER_URL"].split("://", 1)[1])
+              deadline = time.time() + 300
+              while time.time() < deadline:
+                  try:
+                      socket.create_connection((url.hostname, url.port or 5432), timeout=3).close()
+                      print("postgres is accepting connections")
+                      raise SystemExit(0)
+                  except OSError:
+                      time.sleep(2)
+              raise SystemExit("postgres never became reachable")
+          envFrom:
+            - secretRef:
+                name: app-secrets
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: alembic
+          image: ghcr.io/dylanpham1989/scih-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

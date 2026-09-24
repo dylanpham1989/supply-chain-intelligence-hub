@@ -1,0 +1,18 @@
+# RDS and ElastiCache are outside the cluster. An ExternalName service keeps the
+# hostname out of the application config: the pods still talk to `postgres` and
+# `redis`, and only this file changes between environments.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  type: ExternalName
+  externalName: scih-staging.abc123.eu-west-1.rds.amazonaws.com
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  type: ExternalName
+  externalName: scih-staging.abc123.0001.euw1.cache.amazonaws.com
