@@ -1,0 +1,6 @@
+environment = "staging"
+region      = "eu-west-1"
+account_id  = "000000000000"
+
+# Narrow this to the office and CI egress addresses before applying anything.
+api_allowed_cidrs = ["0.0.0.0/0"]
