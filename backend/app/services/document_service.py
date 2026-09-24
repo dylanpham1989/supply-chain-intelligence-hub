@@ -35,9 +35,9 @@ class DocumentService:
         document_id = UUID(str(uuid7()))
         key = build_key(self.tenant_id, document_id, doc_type)
 
-        store = get_store()
-        await store.ensure_bucket()
-        await store.put(key, data, content_type)
+        # The bucket is ensured at startup, not here: readiness checks it, and a
+        # pod that is not ready never receives an upload to create it with.
+        await get_store().put(key, data, content_type)
 
         document = Document(
             id=document_id,

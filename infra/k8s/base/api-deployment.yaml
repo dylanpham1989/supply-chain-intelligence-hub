@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: scih
+      # Kubernetes sends SIGTERM and removes the endpoint at the same time, and
+      # the two are not atomic: kube-proxy can still send traffic for a few
+      # hundred milliseconds. The sleep gives the endpoint time to propagate
+      # before uvicorn starts draining.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: api
+      containers:
+        - name: api
+          image: ghcr.io/dylanpham1989/scih-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          # requests decide which node the pod lands on; limits decide when it
+          # gets throttled (cpu) or killed (memory). `docker stats` puts the api
+          # at 766 MiB with the embedding model loaded and traffic served, so
+          # the request covers steady state and the limit leaves room for a
+          # burst without hiding a leak.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 800Mi
+            limits:
+              cpu: "1"
+              memory: 1500Mi
+          # Without a startup probe, an api that takes 30s to load the model is
+          # killed by the liveness probe before it ever answers, and the pod
+          # crash loops forever. Liveness and readiness are suspended until this
+          # one succeeds.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            # A read only root filesystem still needs somewhere to write:
+            # tempfile during upload and the model cache both land here.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

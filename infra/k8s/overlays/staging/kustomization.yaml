@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: scih
+
+resources:
+  - ../../base
+  - external-secret.yaml
+  - datastores.yaml
+
+# CI rewrites the tag to the commit sha it just built, so a rollback is a
+# rollback to a known image rather than to whatever `latest` points at today.
+images:
+  - name: ghcr.io/dylanpham1989/scih-api
+    newTag: latest
+  - name: ghcr.io/dylanpham1989/scih-worker
+    newTag: latest
+  - name: ghcr.io/dylanpham1989/scih-web
+    newTag: latest
+
+patches:
+  - path: patch-serviceaccount.yaml
+  - path: patch-ingress.yaml
+
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - ENV=staging
+      - CORS_ORIGINS=["https://scih-staging.example.com"]
+
+generatorOptions:
+  disableNameSuffixHash: true

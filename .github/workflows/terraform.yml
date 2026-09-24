@@ -1,0 +1,62 @@
+name: terraform
+
+on:
+  push:
+    branches: [main, dev]
+    paths: ["infra/terraform/**", ".github/workflows/terraform.yml"]
+  pull_request:
+    paths: ["infra/terraform/**", ".github/workflows/terraform.yml"]
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - run: terraform fmt -check -recursive
+        working-directory: infra/terraform
+      - name: Validate every environment
+        # -backend=false because there is no state to reach and no credentials
+        # to reach it with. validate does not need either.
+        run: |
+          for env in infra/terraform/envs/*/; do
+            echo "== $env"
+            terraform -chdir="$env" init -backend=false -input=false
+            terraform -chdir="$env" validate
+          done
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init
+        working-directory: infra/terraform
+      - run: tflint --recursive
+        working-directory: infra/terraform
+
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan the configuration for insecure defaults
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/terraform
+          framework: terraform
+          quiet: true
+          soft_fail: false
+          # Documented rather than silently ignored:
+          # CKV_AWS_88  public IPs on the public subnets, which is where the
+          #             load balancers live and is the point of them.
+          # CKV2_AWS_12 default security group rules, which this VPC does not use.
+          skip_check: CKV_AWS_88,CKV2_AWS_12

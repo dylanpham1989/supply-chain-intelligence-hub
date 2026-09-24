@@ -576,3 +576,85 @@ Measured on the running stack: `/metrics` scrape 4.7 ms, access log adds about 0
 request, 315 backend tests in 64 s, coverage 92.5 percent.
 
 Next: phase 10, Kubernetes manifests, Terraform and CI.
+
+## 2026-09-24 - Phase 10, containers, Kubernetes and infrastructure as code
+
+Done:
+- `infra/k8s/base`, a Kustomize base of 14 manifests, with a local overlay that adds Postgres,
+  Redis and MinIO, and a staging overlay that replaces them with ExternalName services pointing
+  at RDS and ElastiCache and swaps the Secret for an `ExternalSecret`.
+- Three probes on the api, each answering a different question. `startupProbe` gives the model
+  two minutes to load and suspends the other two while it runs, which is what stops a slow start
+  from being killed in a loop. `livenessProbe` hits `/health/live`, which touches nothing.
+  `readinessProbe` hits `/health/ready`, so a pod with a broken dependency leaves the Service
+  rather than the cluster.
+- Migrations as a Job, not an init container: an init container runs once per pod, so two api
+  replicas would race each other through alembic.
+- `maxUnavailable: 0` plus `preStop: sleep 5`. Kubernetes sends SIGTERM and removes the endpoint
+  at the same time and the two are not atomic, so without the sleep a rolling update drops the
+  requests still in flight.
+- Worker `terminationGracePeriodSeconds: 320` against an arq `job_timeout` of 300, and memory
+  requests equal to limits so the pod is Guaranteed and a node under pressure evicts something
+  else rather than losing a job.
+- HPA on CPU for the api with a 30s window out and 300s in. The worker gets a KEDA
+  `ScaledObject` on queue depth instead, because it waits on I/O and its CPU stays flat while the
+  queue grows. KEDA is not installed in the demo cluster, so that file is outside every overlay
+  and CI validates it against the published CRD schema.
+- NetworkPolicy default deny plus four explicit allows. Applied but not enforced on kind, whose
+  default CNI ignores them.
+- Every pod non-root, read only root filesystem, no privilege escalation, all capabilities
+  dropped. The web image moved to the unprivileged nginx build, which listens on 8080 as uid 101.
+- `scripts/smoke_test.sh`: login, upload, wait for indexed, ask, require citations. One
+  definition of working, used by compose, by kind and by CI.
+- Terraform: network, eks, rds, elasticache, s3 and irsa modules plus a staging environment.
+  `terraform validate` passes. Never applied, and `docs/deployment.md` says so with the monthly
+  cost that decision is based on.
+- Four GitHub Actions workflows. The two that matter most: `api-contract` regenerates the
+  frontend types from the OpenAPI schema and fails if they differ from what was committed, and
+  the security workflow runs `check_ai_traces.sh` over the full history so that requirement stops
+  depending on anyone remembering.
+
+Bugs found by running it:
+1. **A deadlock in the readiness probe added last phase.** `/health/ready` checks the object
+   store with `head_bucket`, but nothing created the bucket except the upload path, and a pod
+   that is not ready never receives an upload. The compose stack already had the bucket, so it
+   only appeared on a cluster built from nothing. The bucket is ensured at startup now.
+2. **`kubectl apply -k` created the migration Job before Postgres existed**, and it burned its
+   retries on DNS. Fixed with an init container that waits for the port rather than by telling
+   the caller to apply twice in the right order.
+3. **The MinIO tag in the overlay did not exist.** The compose stack pulls
+   `quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z`; a second tag was a second thing to keep
+   current, so both now use the same one.
+4. **`kubectl wait` fails when the resource does not exist yet**, which is exactly the state
+   right after `kubectl apply` submits it. `kind-up.sh` polls for the deployment to appear and
+   then waits on the rollout.
+5. **A kind cluster can outlive its kubeconfig entry**, for example across a docker daemon
+   restart. `kind-up.sh` re-exports it rather than reporting that no context exists.
+
+Review findings:
+1. **The worker probe could never pass.** It ran `pgrep -f arq`, and `pgrep` is not in the
+   image. Replaced with `arq worker.settings.WorkerSettings --check`, which reads the heartbeat
+   the worker writes into Redis and so tells a wedged event loop from a healthy one, which the
+   process check could not have done even if it had run.
+2. **The KEDA trigger read an environment variable that does not exist.** `REDIS_HOST_PORT` was
+   never set anywhere. The scaler wants host and port, not a dsn, so `REDIS_ADDRESS` is now its
+   own entry in the ConfigMap rather than a second parse of `REDIS_URL`.
+3. **The local overlay's replica patch did nothing.** It set the api to one replica while the
+   HPA's `minReplicas: 2` immediately put the second one back. The overlay patches the HPA too.
+4. **A second `kind-deploy` would have failed.** A Job's pod template is immutable, so applying
+   over a completed Job is an error rather than a no-op. The script deletes it first.
+5. **The resource numbers were guesses.** `kubectl top` reports the api at 445 MiB idle and the
+   worker at 441 MiB, and `docker stats` puts them at 766 MiB and 661 MiB under load. The
+   worker's 2Gi request was nearly triple what it needs. Now 800Mi and 1Gi, with the reasoning
+   in the manifest.
+
+Verified on the cluster rather than asserted: `kubectl rollout restart deploy/api` with a
+request every second through the ingress returned forty consecutive 200s, and
+`scripts/smoke_test.sh` passes against `http://localhost:8081`, upload through indexing to an
+answer with two citations.
+
+Environment note: the machine ran out of disk in the middle of this, and Docker's own metadata
+store started returning I/O errors, which is what `kind load` failed on. 28 GB of build cache
+and 5 GB of application caches later it recovered. Worth knowing before blaming the manifests.
+
+Next: phase 11, architecture documentation and the demo package.

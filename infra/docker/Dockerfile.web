@@ -20,7 +20,10 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
 
-FROM nginx:1.27-alpine AS runtime
+# The unprivileged image listens on 8080 as uid 101 and writes only where a
+# read only root filesystem still allows. The stock nginx image wants root and
+# port 80, which Kubernetes should not be granting a static file server.
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
 # nginx:alpine envsubsts /etc/nginx/templates on boot. The filter matters:
 # without it envsubst also eats $host, $uri and friends.
@@ -29,7 +32,7 @@ ENV API_UPSTREAM=http://api:8000 \
 COPY infra/docker/nginx-templates/ /etc/nginx/templates/
 COPY --from=production-build /build/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://127.0.0.1/ || exit 1
+    CMD wget -q --spider http://127.0.0.1:8080/ || exit 1
