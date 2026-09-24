@@ -9,4 +9,6 @@ data:
   VECTOR_BACKEND: pgvector
   EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
   S3_BUCKET: scih-documents
+  # Read by the KEDA trigger, which needs host:port rather than a dsn.
+  REDIS_ADDRESS: redis:6379
   CORS_ORIGINS: '["http://localhost"]'

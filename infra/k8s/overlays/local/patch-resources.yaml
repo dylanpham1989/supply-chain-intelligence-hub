@@ -35,7 +35,17 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 1200Mi
+              memory: 600Mi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 1Gi
+---
+# Without this the HPA reads minReplicas 2 and immediately undoes the single
+# replica above, which makes the whole patch look like it does nothing.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+spec:
+  minReplicas: 1
+  maxReplicas: 2

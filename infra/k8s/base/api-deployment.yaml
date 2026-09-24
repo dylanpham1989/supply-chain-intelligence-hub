@@ -56,13 +56,14 @@ spec:
             - secretRef:
                 name: app-secrets
           # requests decide which node the pod lands on; limits decide when it
-          # gets throttled (cpu) or killed (memory). Measured on the running
-          # stack rather than guessed: the api holds the embedding model for
-          # question embedding, which is most of the 900Mi.
+          # gets throttled (cpu) or killed (memory). `docker stats` puts the api
+          # at 766 MiB with the embedding model loaded and traffic served, so
+          # the request covers steady state and the limit leaves room for a
+          # burst without hiding a leak.
           resources:
             requests:
               cpu: 200m
-              memory: 900Mi
+              memory: 800Mi
             limits:
               cpu: "1"
               memory: 1500Mi

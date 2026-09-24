@@ -631,6 +631,28 @@ Bugs found by running it:
 5. **A kind cluster can outlive its kubeconfig entry**, for example across a docker daemon
    restart. `kind-up.sh` re-exports it rather than reporting that no context exists.
 
+Review findings:
+1. **The worker probe could never pass.** It ran `pgrep -f arq`, and `pgrep` is not in the
+   image. Replaced with `arq worker.settings.WorkerSettings --check`, which reads the heartbeat
+   the worker writes into Redis and so tells a wedged event loop from a healthy one, which the
+   process check could not have done even if it had run.
+2. **The KEDA trigger read an environment variable that does not exist.** `REDIS_HOST_PORT` was
+   never set anywhere. The scaler wants host and port, not a dsn, so `REDIS_ADDRESS` is now its
+   own entry in the ConfigMap rather than a second parse of `REDIS_URL`.
+3. **The local overlay's replica patch did nothing.** It set the api to one replica while the
+   HPA's `minReplicas: 2` immediately put the second one back. The overlay patches the HPA too.
+4. **A second `kind-deploy` would have failed.** A Job's pod template is immutable, so applying
+   over a completed Job is an error rather than a no-op. The script deletes it first.
+5. **The resource numbers were guesses.** `kubectl top` reports the api at 445 MiB idle and the
+   worker at 441 MiB, and `docker stats` puts them at 766 MiB and 661 MiB under load. The
+   worker's 2Gi request was nearly triple what it needs. Now 800Mi and 1Gi, with the reasoning
+   in the manifest.
+
+Verified on the cluster rather than asserted: `kubectl rollout restart deploy/api` with a
+request every second through the ingress returned forty consecutive 200s, and
+`scripts/smoke_test.sh` passes against `http://localhost:8081`, upload through indexing to an
+answer with two citations.
+
 Environment note: the machine ran out of disk in the middle of this, and Docker's own metadata
 store started returning I/O errors, which is what `kind load` failed on. 28 GB of build cache
 and 5 GB of application caches later it recovered. Worth knowing before blaming the manifests.

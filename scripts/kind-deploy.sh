@@ -30,6 +30,10 @@ kubectl apply -f infra/k8s/base/namespace.yaml
 kubectl create configmap postgres-init -n "$NS" \
     --from-file=00-init.sql=backend/scripts/init-db.sql \
     --dry-run=client -o yaml | kubectl apply -f -
+# A Job's pod template is immutable, so a redeploy has to replace it rather than
+# patch it. ttlSecondsAfterFinished cleans up after a successful run; this covers
+# deploying again before that fires.
+kubectl delete job db-migrate -n "$NS" --ignore-not-found
 kubectl apply -k infra/k8s/overlays/local
 
 echo "==> waiting for datastores"

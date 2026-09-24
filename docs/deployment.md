@@ -41,7 +41,8 @@ registry that does not exist.
 
 ### What the manifests say and why
 
-**Probes.** Three of them, and they answer different questions. `startupProbe`
+**Probes.** Four of them across two workloads, and they answer different
+questions. `startupProbe`
 gives the api up to two minutes to load the embedding model; while it runs the
 other two are suspended, which is what stops a slow start from being killed by
 liveness in a loop that never ends. `livenessProbe` asks whether the process is
@@ -50,23 +51,32 @@ can serve right now, and its failure only takes it out of the Service. Liveness
 points at `/health/live`, which touches no dependency, so a slow database cannot
 restart every pod at once.
 
+The worker has no HTTP surface, so its probes run `arq ... --check`, which reads
+the heartbeat the worker writes into Redis. That distinguishes a wedged event
+loop from a healthy one, which a check on the process alone cannot.
+
 **Rolling updates without dropped requests.** `maxUnavailable: 0` keeps the old
 pod serving until the new one is ready. `preStop: sleep 5` covers the gap that
 surprises people: Kubernetes sends SIGTERM and removes the Service endpoint at
 the same time, and the two are not atomic, so traffic can still arrive for a few
 hundred milliseconds after the process has been told to stop.
 
+Verified rather than asserted: `kubectl rollout restart deploy/api` with a
+request every second through the ingress returned forty consecutive 200s.
+
 **Worker grace period.** 320 seconds, against an arq job timeout of 300. A
 rollout that cut a job off in the middle would leave a document half indexed.
 The two numbers are meant to be read together.
 
 **Resources.** `requests` decide which node a pod is scheduled on; `limits`
-decide when it gets throttled (cpu) or killed (memory). The worker holds torch
-and the sentence-transformers model, about 1.2Gi resident, so its requests and
-limits are both 2Gi: equal values put the pod in the Guaranteed QoS class, and a
-node under memory pressure evicts something else first rather than losing a job
-in flight. The numbers came from `kubectl top pods` after indexing real
-documents, not from a guess.
+decide when it gets throttled (cpu) or killed (memory). The numbers came from
+`kubectl top pods` on the running cluster and `docker stats` on the compose
+stack: the api sits at 445 MiB idle with the model loaded and 766 MiB under
+traffic, the worker at 441 MiB idle and 661 MiB straight after indexing and
+embedding a document. So the api requests 800Mi against a 1.5Gi limit, and the
+worker requests and limits 1Gi, equal on purpose: that puts the pod in the
+Guaranteed QoS class, and a node under memory pressure evicts something else
+first rather than losing a job in flight.
 
 **Migrations as a Job.** Not an init container. An init container runs once per
 pod, so two api replicas start two `alembic upgrade head` at the same time and

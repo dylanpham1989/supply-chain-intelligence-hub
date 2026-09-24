@@ -37,30 +37,36 @@ spec:
                 name: app-config
             - secretRef:
                 name: app-secrets
-          # torch plus the sentence-transformers model is about 1.2Gi resident.
-          # requests equal to limits puts this pod in the Guaranteed QoS class,
-          # so a node under pressure evicts something else first and a job in
-          # flight is not lost.
+          # `kubectl top` reports 441 MiB with the model loaded and 661 MiB
+          # right after indexing and embedding a document. 1Gi leaves room for a
+          # batch of 32 chunks from a larger one, and requests equal to limits
+          # put the pod in the Guaranteed QoS class, so a node under memory
+          # pressure evicts something else first rather than losing a job in
+          # flight.
           resources:
             requests:
               cpu: 500m
-              memory: 2Gi
+              memory: 1Gi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 1Gi
           # The worker serves no traffic, so there is nothing to probe over
-          # HTTP. A liveness probe that cannot tell a busy worker from a stuck
-          # one is worse than none, so this only asks whether the process is
-          # still there.
+          # HTTP. arq writes a heartbeat into Redis and `--check` reads it, which
+          # is a better signal than the process existing: a worker whose event
+          # loop is wedged stops writing the heartbeat while its process stays
+          # up. The first attempt used pgrep, which is not in the image at all,
+          # so the probe failed for the one reason that said nothing about the
+          # worker.
           startupProbe:
             exec:
-              command: ["pgrep", "-f", "arq"]
+              command: ["arq", "worker.settings.WorkerSettings", "--check"]
             periodSeconds: 5
             failureThreshold: 24
           livenessProbe:
             exec:
-              command: ["pgrep", "-f", "arq"]
+              command: ["arq", "worker.settings.WorkerSettings", "--check"]
             periodSeconds: 30
+            timeoutSeconds: 5
             failureThreshold: 3
           securityContext:
             readOnlyRootFilesystem: true

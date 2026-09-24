@@ -22,6 +22,9 @@ spec:
   triggers:
     - type: redis
       metadata:
-        addressFromEnv: REDIS_HOST_PORT
+        # REDIS_URL is a dsn and this scaler wants host:port, so the
+        # address is its own config entry rather than a second parse of
+        # the same string.
+        addressFromEnv: REDIS_ADDRESS
         listName: arq:queue
         listLength: "10"
