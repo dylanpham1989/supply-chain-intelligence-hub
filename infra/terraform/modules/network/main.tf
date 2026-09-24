@@ -133,8 +133,10 @@ resource "aws_vpc_endpoint" "s3" {
 # Flow logs are the only record of what talked to what. Without them, the answer
 # to "was anything else reached from that pod" after an incident is a shrug.
 resource "aws_cloudwatch_log_group" "flow" {
-  name              = "/aws/vpc/${var.name}"
-  retention_in_days = 30
+  name = "/aws/vpc/${var.name}"
+  # A year, because the question flow logs answer is usually asked long after
+  # the traffic happened.
+  retention_in_days = var.flow_log_retention_days
   kms_key_id        = var.kms_key_arn
 }
 

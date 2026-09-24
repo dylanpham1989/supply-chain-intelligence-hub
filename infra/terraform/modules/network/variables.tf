@@ -24,6 +24,16 @@ variable "cidr_block" {
   }
 }
 
+variable "flow_log_retention_days" {
+  type    = number
+  default = 365
+
+  validation {
+    condition     = var.flow_log_retention_days >= 365
+    error_message = "Keep flow logs for at least a year."
+  }
+}
+
 variable "single_nat_gateway" {
   description = "One NAT gateway for the whole VPC. Cheaper, and a zone outage takes egress with it."
   type        = bool

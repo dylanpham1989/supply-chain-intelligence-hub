@@ -77,7 +77,10 @@ jobs:
           #     limitation, not an oversight.
           # CKV2_AWS_62  bucket event notifications. Nothing subscribes; the
           #     worker is told about a document by the job queue.
+          # CKV_AWS_394  wants the availability zone data source pinned by name
+          #     or id. It is filtered to opt-in-not-required, which is the
+          #     stable set; naming zones would pin the environment to a region.
           skip_check: >-
             CKV_AWS_88,CKV_AWS_130,CKV2_AWS_12,CKV_AWS_39,CKV_AWS_38,
             CKV_AWS_157,CKV2_AWS_50,CKV_AWS_31,CKV_AWS_18,CKV_AWS_144,
-            CKV2_AWS_62
+            CKV2_AWS_62,CKV_AWS_394

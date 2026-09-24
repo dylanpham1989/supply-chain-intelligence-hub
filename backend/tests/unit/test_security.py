@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import jwt
 import pytest
-from jose import jwt
 
 from app.core.config import settings
 from app.core.errors import AuthError

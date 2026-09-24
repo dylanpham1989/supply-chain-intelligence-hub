@@ -14,7 +14,10 @@ dependencies = [
     "redis>=5.2",
     "arq>=0.26",
     "boto3>=1.35",
-    "python-jose[cryptography]>=3.3",
+    # PyJWT rather than python-jose: jose pulls in ecdsa, which carries an
+    # advisory with no fixed release, and jose itself has not shipped in years.
+    # Only HS256 is used here, which both implement identically.
+    "pyjwt>=2.10",
     "passlib[bcrypt]>=1.7.4",
     "bcrypt<4.1",
     "python-multipart>=0.0.20",
@@ -114,7 +117,6 @@ exclude = ["^alembic/", "^tests/"]
 [[tool.mypy.overrides]]
 # Optional or untyped third-party packages.
 module = [
-    "jose.*",
     "passlib.*",
     "arq.*",
     "uuid_extensions.*",
