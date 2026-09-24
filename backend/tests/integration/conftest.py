@@ -17,6 +17,9 @@ from app.models import Tenant
 
 TenantSwitch = Callable[[UUID], Awaitable[None]]
 
+# The first run loads the embedding model, which is slower than the default.
+STARTUP_TIMEOUT_S = 120.0
+
 UNREACHABLE = (
     "cannot reach postgres at {url}. run `make up` first, or point DATABASE_URL at a "
     "migrated database."
@@ -100,7 +103,7 @@ async def api(session: AsyncSession) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[get_session] = _session_override
     transport = ASGITransport(app=app)
     async with (
-        LifespanManager(app),
+        LifespanManager(app, startup_timeout=STARTUP_TIMEOUT_S),
         AsyncClient(transport=transport, base_url="http://testserver") as client,
     ):
         yield client

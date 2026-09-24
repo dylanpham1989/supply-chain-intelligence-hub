@@ -12,9 +12,10 @@ ENV UV_DEFAULT_INDEX=${UV_DEFAULT_INDEX}
 
 WORKDIR /build
 COPY backend/pyproject.toml backend/uv.lock ./
-# The worker parses documents, so it carries the ingest group the api does not.
+# The worker parses documents and embeds them, so it carries the groups the api
+# does not. Keeping torch out of the api image is the point of the split.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
-    uv sync --frozen --no-default-groups --group ingest --no-install-project
+    uv sync --frozen --no-default-groups --group ingest --group ai --no-install-project
 
 
 FROM python:3.12-slim AS runtime
@@ -27,6 +28,16 @@ RUN groupadd --gid 10001 app \
  && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /opt/venv /opt/venv
+
+# Bake the embedding model in. Downloading it on first use would put a few
+# seconds and a network dependency into the first job of every fresh container.
+ENV HF_HOME=/models \
+    SENTENCE_TRANSFORMERS_HOME=/models
+ARG EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+RUN --mount=type=cache,target=/root/.cache/huggingface,sharing=locked \
+    python -c "from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('${EMBEDDING_MODEL}', device='cpu')" \
+ && chown -R app:app /models
 
 WORKDIR /app
 COPY --chown=app:app backend/ /app/

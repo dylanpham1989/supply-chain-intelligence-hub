@@ -1,0 +1,86 @@
+name: terraform
+
+on:
+  push:
+    branches: [main, dev]
+    paths: ["infra/terraform/**", ".github/workflows/terraform.yml"]
+  pull_request:
+    paths: ["infra/terraform/**", ".github/workflows/terraform.yml"]
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - run: terraform fmt -check -recursive
+        working-directory: infra/terraform
+      - name: Validate every environment
+        # -backend=false because there is no state to reach and no credentials
+        # to reach it with. validate does not need either.
+        run: |
+          for env in infra/terraform/envs/*/; do
+            echo "== $env"
+            terraform -chdir="$env" init -backend=false -input=false
+            terraform -chdir="$env" validate
+          done
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init
+        working-directory: infra/terraform
+      - run: tflint --recursive
+        working-directory: infra/terraform
+
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan the configuration for insecure defaults
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/terraform
+          framework: terraform
+          quiet: true
+          soft_fail: false
+          # Each skip is a decision, not a way to get the job green. Everything
+          # else checkov found was fixed rather than skipped.
+          #
+          # CKV_AWS_88, CKV_AWS_130  public IPs on the public subnets. That is
+          #     what a public subnet is for; only the load balancers sit there.
+          # CKV2_AWS_12  rules on the default security group, which nothing in
+          #     this VPC is attached to.
+          # CKV_AWS_39, CKV_AWS_38  a public API server endpoint. Kept so that
+          #     CI and an operator reach the cluster without a bastion; the
+          #     allowlist is the control, and prod passes a narrow one.
+          # CKV_AWS_157, CKV2_AWS_50  multi-AZ for RDS and ElastiCache. Both are
+          #     variables. Staging pays for one instance on purpose; prod sets
+          #     them.
+          # CKV_AWS_31  a Redis auth token. Access is already limited to the
+          #     node security group and encrypted in transit, and a shared token
+          #     would be one more secret to distribute and rotate.
+          # CKV_AWS_18  S3 access logging. It needs a second bucket whose own
+          #     logging is then the same question one level down.
+          # CKV_AWS_144  cross-region replication. Single region is a stated
+          #     limitation, not an oversight.
+          # CKV2_AWS_62  bucket event notifications. Nothing subscribes; the
+          #     worker is told about a document by the job queue.
+          # CKV_AWS_394  wants the availability zone data source pinned by name
+          #     or id. It is filtered to opt-in-not-required, which is the
+          #     stable set; naming zones would pin the environment to a region.
+          skip_check: >-
+            CKV_AWS_88,CKV_AWS_130,CKV2_AWS_12,CKV_AWS_39,CKV_AWS_38,
+            CKV_AWS_157,CKV2_AWS_50,CKV_AWS_31,CKV_AWS_18,CKV_AWS_144,
+            CKV2_AWS_62,CKV_AWS_394

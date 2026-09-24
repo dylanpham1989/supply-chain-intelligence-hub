@@ -1,0 +1,80 @@
+name: security
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  schedule:
+    # A dependency that was clean on Monday can have a CVE by Friday.
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  traces:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check reads history, not just the working tree.
+          fetch-depth: 0
+      - run: bash scripts/check_ai_traces.sh
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Audit python dependencies
+        # The ai and ml groups are left out because torch resolves to a +cpu
+        # build that only exists on the pytorch index, and pip-audit resolves
+        # against PyPI. Auditing them would need that index wired in, and the
+        # trade is auditing the application's own dependencies today rather than
+        # nothing.
+        run: |
+          uv export --no-hashes --no-group ai --no-group ml \
+            --format requirements.txt > /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npm audit --audit-level=high
+        working-directory: frontend
+
+  filesystem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          # Only fail on something that can actually be fixed. A base image CVE
+          # with no patch available is noise that trains people to ignore the
+          # job.
+          ignore-unfixed: true
+          exit-code: "1"

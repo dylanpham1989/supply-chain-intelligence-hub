@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: scih
+
+resources:
+  - ../../base
+  - postgres-statefulset.yaml
+  - redis-deployment.yaml
+  - minio-deployment.yaml
+
+# Built locally and pushed into the node with `kind load`, so there is no
+# registry to pull from and no tag to resolve.
+images:
+  - name: ghcr.io/dylanpham1989/scih-api
+    newName: scih-api
+    newTag: local
+  - name: ghcr.io/dylanpham1989/scih-worker
+    newName: scih-worker
+    newTag: local
+  - name: ghcr.io/dylanpham1989/scih-web
+    newName: scih-web
+    newTag: local
+
+patches:
+  - path: patch-resources.yaml
+
+# The postgres init sql is not generated here on purpose. Kustomize refuses to
+# read files above its own directory, and copying backend/scripts/init-db.sql
+# into this overlay would give the role grants two homes that drift apart.
+# kind-deploy.sh creates that ConfigMap from the canonical file.
+
+secretGenerator:
+  - name: app-secrets
+    envs:
+      - secret.env
+
+generatorOptions:
+  # The generated names are referenced by envFrom in the base, which has no way
+  # to know the hash. Rolling on a secret change is handled by kind-deploy.sh
+  # restarting the deployments instead.
+  disableNameSuffixHash: true

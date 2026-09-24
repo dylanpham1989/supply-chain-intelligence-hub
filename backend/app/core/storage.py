@@ -33,6 +33,10 @@ class ObjectStore:
         )
         self.bucket = settings.s3_bucket
 
+    async def ping(self) -> None:
+        """Readiness only. A missing bucket is as good as an unreachable store."""
+        await asyncio.to_thread(self._client.head_bucket, Bucket=self.bucket)
+
     async def ensure_bucket(self) -> None:
         await asyncio.to_thread(self._ensure_bucket_sync)
 

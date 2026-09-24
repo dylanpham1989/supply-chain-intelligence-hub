@@ -5,7 +5,8 @@ from typing import Literal
 from uuid import UUID
 
 import anyio
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7
@@ -105,7 +106,7 @@ def decode_token(token: str, *, expect: TokenType) -> TokenClaims:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         claims = TokenClaims.model_validate(payload)
-    except (JWTError, ValidationError) as exc:
+    except (PyJWTError, ValidationError) as exc:
         raise AuthError("Invalid token") from exc
 
     if claims.typ != expect:

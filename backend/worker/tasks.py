@@ -7,13 +7,18 @@ from uuid import UUID
 
 from sqlalchemy import delete, select
 
+from ai.embeddings.hf_embedder import get_embedder
 from ai.ingestion.base import ParsedDoc, PermanentError, TransientError
 from ai.ingestion.chunker import SectionAwareChunker
 from ai.ingestion.cleaner import clean_pages
 from ai.ingestion.csv_parser import CsvParser
 from ai.ingestion.pdf_parser import PdfParser, extract_tables
+from ai.vectorstore.base import VectorItem
+from ai.vectorstore.pgvector_store import PgVectorStore
 from app.core.cache import invalidate_tags
+from app.core.context import bind_job_context
 from app.core.logging import get_logger
+from app.core.metrics import record_document, record_job
 from app.core.storage import get_store
 from app.models import Document, DocumentChunk
 from app.models.enums import DocStatus, DocType
@@ -33,6 +38,7 @@ async def process_document(
     Idempotent: chunks are deleted before they are written, so a redelivered job
     replaces its output rather than doubling it.
     """
+    bind_job_context(request_id=request_id, tenant_id=tenant_id)
     tenant = UUID(tenant_id)
     doc_id = UUID(document_id)
     started = time.perf_counter()
@@ -52,22 +58,18 @@ async def process_document(
         doc_type = document.doc_type
         filename = document.filename
 
-    log.info(
-        "ingest.started",
-        tenant_id=tenant_id,
-        document_id=document_id,
-        doc_type=doc_type,
-        request_id=request_id,
-    )
+    log.info("ingest.started", document_id=document_id, doc_type=doc_type)
 
     try:
         parsed = await _parse(s3_key, doc_type)
     except PermanentError as exc:
         await _fail(tenant, doc_id, str(exc))
         log.warning("ingest.failed", document_id=document_id, error=str(exc))
+        _record(tenant_id, doc_type, "failed", started)
         return {"status": "failed", "error": str(exc)}
     except TransientError:
         await _fail(tenant, doc_id, "temporary failure, retrying")
+        _record(tenant_id, doc_type, "retrying", started)
         raise
 
     async with tenant_session(tenant) as session:
@@ -109,19 +111,20 @@ async def process_document(
         await invalidate_tags(ctx["redis"], tenant, ["analytics", "shipments"])
 
     elapsed_ms = round((time.perf_counter() - started) * 1000)
+    _record(tenant_id, doc_type, "indexed", started)
     log.info(
         "ingest.completed",
-        tenant_id=tenant_id,
         document_id=document_id,
         chunks=len(chunks),
         imported_rows=imported,
         skipped_rows=len(skipped_rows),
         duration_ms=elapsed_ms,
-        request_id=request_id,
     )
 
     if ctx.get("redis") is not None:
-        await ctx["redis"].enqueue_job("embed_document", tenant_id, document_id)
+        # The request id rides along so the whole chain, upload to vector, greps
+        # out of the logs as one story.
+        await ctx["redis"].enqueue_job("embed_document", tenant_id, document_id, request_id)
 
     return {
         "status": "indexed",
@@ -132,10 +135,95 @@ async def process_document(
     }
 
 
-async def embed_document(ctx: dict[str, Any], tenant_id: str, document_id: str) -> dict[str, Any]:
-    """Placeholder until the retrieval work lands."""
-    log.info("embed.skipped", tenant_id=tenant_id, document_id=document_id)
-    return {"status": "skipped"}
+EMBED_BATCH = 32
+
+
+async def embed_document(
+    ctx: dict[str, Any], tenant_id: str, document_id: str, request_id: str = ""
+) -> dict[str, Any]:
+    """Vectorise the chunks that do not have a vector yet.
+
+    Selecting on embedding IS NULL makes this idempotent without any extra
+    bookkeeping: a repeat run embeds whatever is still missing and nothing else.
+    """
+    bind_job_context(request_id=request_id, tenant_id=tenant_id)
+    try:
+        tenant = UUID(tenant_id)
+        doc_id = UUID(document_id)
+        started = time.perf_counter()
+        embedder = get_embedder()
+        embedded = 0
+
+        async with tenant_session(tenant) as session:
+            pending = (
+                (
+                    await session.execute(
+                        select(DocumentChunk)
+                        .where(
+                            DocumentChunk.document_id == doc_id,
+                            DocumentChunk.embedding.is_(None),
+                        )
+                        .order_by(DocumentChunk.chunk_index)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            store = PgVectorStore(session)
+            for start in range(0, len(pending), EMBED_BATCH):
+                batch = pending[start : start + EMBED_BATCH]
+                vectors = await embedder.encode([chunk.content for chunk in batch])
+                embedded += await store.upsert(
+                    tenant,
+                    [
+                        VectorItem(
+                            chunk_id=chunk.id,
+                            document_id=doc_id,
+                            content=chunk.content,
+                            embedding=vector,
+                            metadata=chunk.meta,
+                        )
+                        for chunk, vector in zip(batch, vectors, strict=True)
+                    ],
+                )
+
+            document = (
+                await session.execute(select(Document).where(Document.id == doc_id))
+            ).scalar_one_or_none()
+            if document is not None:
+                # Recorded so a model change is visible rather than showing up as
+                # retrieval quietly getting worse.
+                document.embedding_model = embedder.model_name
+                document.embedding_dim = embedder.dimensions
+                await session.flush()
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        record_job("embed_document", "completed")
+        log.info(
+            "embed.completed",
+            document_id=document_id,
+            embedded=embedded,
+            model=embedder.model_name,
+            duration_ms=elapsed_ms,
+        )
+        return {"status": "embedded", "embedded": embedded, "duration_ms": elapsed_ms}
+    except Exception:
+        # arq will retry, and a job that keeps failing is otherwise visible
+        # only as a gap where the completion should be.
+        record_job("embed_document", "failed")
+        log.warning("embed.failed", document_id=document_id, exc_info=True)
+        raise
+
+
+def _record(tenant_id: str, doc_type: DocType, status: str, started: float) -> None:
+    record_document(
+        tenant_id=tenant_id,
+        doc_type=doc_type.value,
+        status=status,
+        duration_s=time.perf_counter() - started,
+    )
+    record_job("process_document", status)
 
 
 async def _parse(s3_key: str, doc_type: DocType) -> ParsedDoc:

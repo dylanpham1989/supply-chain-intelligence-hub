@@ -1,20 +1,26 @@
 .git
 .gitignore
 .github
-.venv
-node_modules
-__pycache__
+
+# Anchored patterns only match the root, and these live one level down. Without
+# the glob the local virtualenv is copied into the image next to the one the
+# build just made.
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/htmlcov
+**/.coverage
+**/dist
+**/.vite
 *.py[cod]
-.pytest_cache
-.mypy_cache
-.ruff_cache
-htmlcov
-.coverage
-dist
-.vite
+
 .env
 .env.*
 !.env.example
+
 data/uploads
 models/*.joblib
 infra/terraform
