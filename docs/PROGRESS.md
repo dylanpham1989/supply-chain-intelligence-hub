@@ -540,8 +540,9 @@ Bugs found by running it:
 1. **The route label was missing the API prefix.** FastAPI 0.141 keeps included routers nested
    instead of flattening them, so `scope["route"].path` is the path the inner router declared:
    `/shipments/{shipment_id}`, not `/api/v1/shipments/{shipment_id}`. Every dashboard query
-   written against the real URL would have matched nothing. The template is now rebuilt from
-   `scope["path"]` and the matched path parameters, which is version independent.
+   written against the real URL would have matched nothing. The route's segments are the tail
+   of the request's, so the label is now built by aligning the two from the right, which also
+   survives a FastAPI that flattens routers again.
 2. **Every Grafana panel would have been empty.** The dashboard JSON refers to datasource uid
    `prometheus`; a provisioned datasource without an explicit `uid` gets a generated one
    (`PBFA97CFB590B2093` here). Pinned the uid in the provisioning file. Visible only by opening
@@ -555,7 +556,23 @@ Bugs found by running it:
    6. The script now runs it through `npx` and pipes the result through prettier, which is what
    keeps the generated file from rewriting itself on every run.
 
+Review findings:
+1. **The request id pattern accepted a trailing newline.** In Python `$` also matches just
+   before one, so `abc\n` passed a check written to stop exactly that. The HTTP parser rejects
+   such a header first, which is the reason the second line of defence has to be right on its
+   own. `\A...\Z` now.
+2. **The route label picked the wrong segment when an id repeated a literal.** The first
+   attempt substituted parameter values into the path, so a shipment whose id was the string
+   `shipments` produced `/api/v1/{shipment_id}/shipments`. Replaced with aligning the route's
+   segments against the tail of the request's, which needs no value matching and gives the same
+   answer whether or not FastAPI flattens its routers.
+3. **Probes and scrapes were the log.** Kubernetes probes every few seconds and Prometheus
+   every fifteen, at an access line each. `/metrics` and the health paths are now logged only
+   when they answer with an error.
+4. **A failing embedding job was invisible.** Only the success path recorded a metric, so a job
+   that kept failing showed up as a gap where a completion should be rather than as a count.
+
 Measured on the running stack: `/metrics` scrape 4.7 ms, access log adds about 0.1 ms per
-request, 311 backend tests in 84 s, coverage 92.6 percent.
+request, 315 backend tests in 64 s, coverage 92.5 percent.
 
 Next: phase 10, Kubernetes manifests, Terraform and CI.

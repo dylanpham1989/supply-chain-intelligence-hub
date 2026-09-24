@@ -16,11 +16,20 @@ from app.middleware.request_context import route_template
 log = get_logger("app.access")
 
 SERVER_ERROR = 500
+CLIENT_ERROR = 400
 
 
 class AccessLogMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
+    """One line per request, minus the traffic nobody reads.
+
+    Kubernetes probes every few seconds and Prometheus scrapes every fifteen. At
+    a line each that is most of the log volume and none of its value, so those
+    paths are logged only when they answer with an error.
+    """
+
+    def __init__(self, app: ASGIApp, *, quiet_paths: tuple[str, ...] = ()) -> None:
         self.app = app
+        self.quiet_paths = quiet_paths
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -41,13 +50,15 @@ class AccessLogMiddleware:
         try:
             await self.app(scope, receive, send_with_status)
         finally:
-            # The tenant is only known once the token is decoded, which happens
-            # deeper in the stack, so this is read after the response.
-            log.info(
-                "http.request",
-                method=scope.get("method", ""),
-                route=route_template(scope),
-                status=status,
-                duration_ms=round((time.perf_counter() - started) * 1000, 2),
-                **current_context(),
-            )
+            if status >= CLIENT_ERROR or scope.get("path", "") not in self.quiet_paths:
+                # The tenant is only known once the token is decoded, which
+                # happens deeper in the stack, so this is read after the
+                # response rather than before the call.
+                log.info(
+                    "http.request",
+                    method=scope.get("method", ""),
+                    route=route_template(scope),
+                    status=status,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 2),
+                    **current_context(),
+                )

@@ -5,7 +5,7 @@ from httpx import AsyncClient
 
 from app.core import metrics
 from app.core.logging import REDACTED, redact_sensitive
-from app.middleware.request_context import REQUEST_ID_HEADER
+from app.middleware.request_context import REQUEST_ID_HEADER, SAFE_REQUEST_ID, route_template
 
 
 async def test_request_id_is_echoed_back(client: AsyncClient) -> None:
@@ -128,3 +128,43 @@ def test_credentials_are_redacted_before_rendering() -> None:
     assert event["authorization"] == REDACTED
     assert event["api_key"] == REDACTED
     assert event["user"] == "a"
+
+
+def test_a_trailing_newline_is_not_a_valid_request_id() -> None:
+    """Python's $ matches before a trailing newline, and \\Z does not.
+
+    The HTTP parser rejects a header like this long before it gets here, which
+    is the point: the check has to hold on its own.
+    """
+    assert SAFE_REQUEST_ID.match("abc") is not None
+    assert SAFE_REQUEST_ID.match("abc\n") is None
+
+
+def test_route_template_restores_the_prefix_the_router_dropped() -> None:
+    """An id equal to a literal segment must not rewrite that segment instead."""
+
+    class Route:
+        path = "/shipments/{shipment_id}"
+
+    scope = {
+        "route": Route(),
+        "path": "/api/v1/shipments/shipments",
+        "path_params": {"shipment_id": "shipments"},
+    }
+
+    assert route_template(scope) == "/api/v1/shipments/{shipment_id}"
+
+
+def test_route_template_handles_an_already_complete_route_path() -> None:
+    """A FastAPI that flattens its routers must give the same label."""
+
+    class Route:
+        path = "/api/v1/shipments/{shipment_id}"
+
+    scope = {"route": Route(), "path": "/api/v1/shipments/abc", "path_params": {}}
+
+    assert route_template(scope) == "/api/v1/shipments/{shipment_id}"
+
+
+def test_route_template_without_a_match_is_unmatched() -> None:
+    assert route_template({"path": "/nope"}) == "unmatched"

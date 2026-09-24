@@ -29,6 +29,8 @@ log = get_logger(__name__)
 
 EMBEDDER_WARM_TIMEOUT_S = 60.0
 METRICS_PATH = "/metrics"
+# Probed and scraped every few seconds. Logged only when they answer with an error.
+QUIET_PATHS = (METRICS_PATH, "/health", "/health/live", "/health/ready")
 
 HTTP_ERROR_CODES = {
     401: "unauthenticated",
@@ -87,7 +89,7 @@ def create_app() -> FastAPI:
     # before anything else can log, and the access line is written by the layer
     # that sees the real status even when a handler raises.
     app.add_middleware(MetricsMiddleware, skip_paths=(METRICS_PATH,))
-    app.add_middleware(AccessLogMiddleware)
+    app.add_middleware(AccessLogMiddleware, quiet_paths=QUIET_PATHS)
     app.add_middleware(RequestContextMiddleware)
 
     app.add_middleware(

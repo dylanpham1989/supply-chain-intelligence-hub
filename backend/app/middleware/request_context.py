@@ -19,27 +19,42 @@ REQUEST_ID_HEADER = "x-request-id"
 
 # A caller-supplied id ends up in log lines, so it is validated rather than
 # trusted. A newline in it would let a caller forge log records.
-SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+#
+# \Z rather than $: in Python $ also matches just before a trailing newline, so
+# "abc\n" passes an otherwise identical pattern. The HTTP parser rejects that
+# header before it reaches here, which is exactly why the second line of defence
+# has to be right.
+SAFE_REQUEST_ID = re.compile(r"\A[A-Za-z0-9._-]{1,64}\Z")
 
 UNKNOWN_ROUTE = "unmatched"
 
 
 def route_template(scope: Scope) -> str:
-    """The path with its parameters put back as placeholders.
+    """The path with its parameters still as placeholders.
 
     `/api/v1/shipments/{shipment_id}`, never `/api/v1/shipments/3f2a-...`. As a
     metric label the raw path would mint one time series per shipment.
 
-    It is rebuilt from the path and the matched parameters rather than read off
-    `scope["route"].path`: FastAPI keeps included routers nested instead of
-    flattening them, so the route object carries the path as its own router
-    declared it, without the `/api/v1` prefix the request actually used.
+    The matched route knows the template but not the whole path: FastAPI keeps
+    included routers nested rather than flattening them, so the route object
+    carries the path its own router declared, without the `/api/v1` prefix the
+    request actually used. Its segments are the tail of the request's, so the
+    two are aligned from the right and the missing prefix is taken from the
+    request. Aligning beats substituting parameter values by hand, which picks
+    the wrong segment as soon as an id happens to equal a literal one.
     """
-    if scope.get("route") is None:
+    route = scope.get("route")
+    if route is None:
         return UNKNOWN_ROUTE
+
     path = str(scope.get("path", ""))
-    for name, value in (scope.get("path_params") or {}).items():
-        path = path.replace(str(value), "{" + name + "}", 1)
+    declared = str(getattr(route, "path", "") or "")
+    request_segments = path.split("/")
+    declared_segments = declared.split("/")
+
+    if declared and len(declared_segments) <= len(request_segments):
+        keep = len(request_segments) - len(declared_segments) + 1
+        return "/".join([*request_segments[:keep], *declared_segments[1:]]) or UNKNOWN_ROUTE
     return path or UNKNOWN_ROUTE
 
 

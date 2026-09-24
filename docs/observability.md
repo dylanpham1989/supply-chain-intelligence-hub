@@ -80,11 +80,16 @@ labels here that could grow without bound are handled explicitly.
 could add more by asking for paths that do not exist. Unmatched paths all share the label
 `unmatched`.
 
-The template is rebuilt from `scope["path"]` and the matched path parameters rather than read
-off `scope["route"].path`. FastAPI keeps included routers nested rather than flattening them,
-so the route object carries the path its own router declared, without the `/api/v1` prefix the
-request actually used. A label of `/shipments/{shipment_id}` would not match anything anyone
-types into a dashboard.
+Getting the template is less obvious than it looks. FastAPI keeps included routers nested
+rather than flattening them, so `scope["route"].path` is the path that router declared,
+`/shipments/{shipment_id}`, without the `/api/v1` prefix the request actually used. A label
+like that matches nothing anyone would type into a dashboard.
+
+Those segments are the tail of the request's, so the two are aligned from the right and the
+missing prefix is taken from the request path. Substituting the parameter values by hand is
+the obvious alternative and it is wrong: an id whose value equals an earlier literal segment
+rewrites that segment instead, and the label becomes a route that does not exist. Aligning
+also keeps working if a later FastAPI starts flattening routers again.
 
 **Tenants** are capped. The first 50 tenant ids seen keep their own series and everything
 after shares `other`:
@@ -144,6 +149,12 @@ the multiprocess collector.
 
 `/metrics` is not exposed publicly. The nginx image returns 404 for it, and in Kubernetes
 Prometheus reaches the pod directly on the cluster network.
+
+### Log volume
+
+Kubernetes probes every few seconds and Prometheus scrapes every fifteen. At one access line
+each that is most of the log volume and none of its value, so `/metrics` and the health paths
+are logged only when they answer with an error.
 
 ## Health probes
 

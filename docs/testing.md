@@ -9,7 +9,7 @@ make test-cov    # coverage report plus the per-module floors
 
 ## Shape
 
-311 backend tests, 164 of them unit and 147 integration, plus 30 frontend tests. The whole
+315 backend tests, 168 of them unit and 147 integration, plus 30 frontend tests. The whole
 backend suite runs in about 90 seconds.
 
 The ratio is the point. Unit tests are cheap, so there are many; integration tests are slower

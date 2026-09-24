@@ -147,66 +147,73 @@ async def embed_document(
     bookkeeping: a repeat run embeds whatever is still missing and nothing else.
     """
     bind_job_context(request_id=request_id, tenant_id=tenant_id)
-    tenant = UUID(tenant_id)
-    doc_id = UUID(document_id)
-    started = time.perf_counter()
-    embedder = get_embedder()
-    embedded = 0
+    try:
+        tenant = UUID(tenant_id)
+        doc_id = UUID(document_id)
+        started = time.perf_counter()
+        embedder = get_embedder()
+        embedded = 0
 
-    async with tenant_session(tenant) as session:
-        pending = (
-            (
-                await session.execute(
-                    select(DocumentChunk)
-                    .where(
-                        DocumentChunk.document_id == doc_id,
-                        DocumentChunk.embedding.is_(None),
+        async with tenant_session(tenant) as session:
+            pending = (
+                (
+                    await session.execute(
+                        select(DocumentChunk)
+                        .where(
+                            DocumentChunk.document_id == doc_id,
+                            DocumentChunk.embedding.is_(None),
+                        )
+                        .order_by(DocumentChunk.chunk_index)
                     )
-                    .order_by(DocumentChunk.chunk_index)
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
+
+            store = PgVectorStore(session)
+            for start in range(0, len(pending), EMBED_BATCH):
+                batch = pending[start : start + EMBED_BATCH]
+                vectors = await embedder.encode([chunk.content for chunk in batch])
+                embedded += await store.upsert(
+                    tenant,
+                    [
+                        VectorItem(
+                            chunk_id=chunk.id,
+                            document_id=doc_id,
+                            content=chunk.content,
+                            embedding=vector,
+                            metadata=chunk.meta,
+                        )
+                        for chunk, vector in zip(batch, vectors, strict=True)
+                    ],
+                )
+
+            document = (
+                await session.execute(select(Document).where(Document.id == doc_id))
+            ).scalar_one_or_none()
+            if document is not None:
+                # Recorded so a model change is visible rather than showing up as
+                # retrieval quietly getting worse.
+                document.embedding_model = embedder.model_name
+                document.embedding_dim = embedder.dimensions
+                await session.flush()
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        record_job("embed_document", "completed")
+        log.info(
+            "embed.completed",
+            document_id=document_id,
+            embedded=embedded,
+            model=embedder.model_name,
+            duration_ms=elapsed_ms,
         )
-
-        store = PgVectorStore(session)
-        for start in range(0, len(pending), EMBED_BATCH):
-            batch = pending[start : start + EMBED_BATCH]
-            vectors = await embedder.encode([chunk.content for chunk in batch])
-            embedded += await store.upsert(
-                tenant,
-                [
-                    VectorItem(
-                        chunk_id=chunk.id,
-                        document_id=doc_id,
-                        content=chunk.content,
-                        embedding=vector,
-                        metadata=chunk.meta,
-                    )
-                    for chunk, vector in zip(batch, vectors, strict=True)
-                ],
-            )
-
-        document = (
-            await session.execute(select(Document).where(Document.id == doc_id))
-        ).scalar_one_or_none()
-        if document is not None:
-            # Recorded so a model change is visible rather than showing up as
-            # retrieval quietly getting worse.
-            document.embedding_model = embedder.model_name
-            document.embedding_dim = embedder.dimensions
-            await session.flush()
-
-    elapsed_ms = round((time.perf_counter() - started) * 1000)
-    record_job("embed_document", "completed")
-    log.info(
-        "embed.completed",
-        document_id=document_id,
-        embedded=embedded,
-        model=embedder.model_name,
-        duration_ms=elapsed_ms,
-    )
-    return {"status": "embedded", "embedded": embedded, "duration_ms": elapsed_ms}
+        return {"status": "embedded", "embedded": embedded, "duration_ms": elapsed_ms}
+    except Exception:
+        # arq will retry, and a job that keeps failing is otherwise visible
+        # only as a gap where the completion should be.
+        record_job("embed_document", "failed")
+        log.warning("embed.failed", document_id=document_id, exc_info=True)
+        raise
 
 
 def _record(tenant_id: str, doc_type: DocType, status: str, started: float) -> None:
