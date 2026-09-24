@@ -1,32 +1,34 @@
 """FastAPI application entrypoint."""
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, TypedDict
 
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai.embeddings.hf_embedder import get_embedder
+from app.api.health import router as health_router
 from app.api.v1.router import api_router
+from app.core import metrics
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging, get_logger
 from app.db.session import engine
+from app.middleware.access_log import AccessLogMiddleware
+from app.middleware.metrics import MetricsMiddleware
+from app.middleware.request_context import RequestContextMiddleware
 
 log = get_logger(__name__)
 
-DEPENDENCY_TIMEOUT_S = 2.0
 EMBEDDER_WARM_TIMEOUT_S = 60.0
+METRICS_PATH = "/metrics"
 
 HTTP_ERROR_CODES = {
     401: "unauthenticated",
@@ -37,12 +39,6 @@ HTTP_ERROR_CODES = {
     413: "payload_too_large",
     429: "rate_limited",
 }
-
-
-class HealthPayload(TypedDict):
-    status: str
-    db: bool
-    redis: bool
 
 
 @asynccontextmanager
@@ -80,12 +76,19 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=settings.app_version,
         docs_url="/docs" if expose_schema else None,
         redoc_url=None,
         openapi_url="/openapi.json" if expose_schema else None,
         lifespan=lifespan,
     )
+
+    # Starlette runs the last added middleware first, so the request id is bound
+    # before anything else can log, and the access line is written by the layer
+    # that sees the real status even when a handler raises.
+    app.add_middleware(MetricsMiddleware, skip_paths=(METRICS_PATH,))
+    app.add_middleware(AccessLogMiddleware)
+    app.add_middleware(RequestContextMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
@@ -151,42 +154,17 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(api_router, prefix=settings.api_prefix)
+    app.include_router(health_router)
 
-    @app.get("/health", tags=["health"])
-    async def health() -> JSONResponse:
-        db_ok, redis_ok = await asyncio.gather(
-            _check("db", _ping_db, app.state.engine),
-            _check("redis", _ping_redis, app.state.redis),
-        )
-        payload: HealthPayload = {
-            "status": "ok" if db_ok and redis_ok else "degraded",
-            "db": db_ok,
-            "redis": redis_ok,
-        }
-        return JSONResponse(
-            content=dict(payload),
-            status_code=200 if db_ok and redis_ok else 503,
-        )
+    @app.get(METRICS_PATH, include_in_schema=False)
+    async def prometheus_metrics() -> Response:
+        # Pool depth is read here rather than polled, so it costs nothing
+        # between scrapes.
+        metrics.observe_pool(app.state.engine)
+        payload, content_type = metrics.render()
+        return Response(content=payload, media_type=content_type)
 
     return app
-
-
-async def _check(name: str, probe: Callable[[Any], Awaitable[None]], resource: Any) -> bool:
-    try:
-        await asyncio.wait_for(probe(resource), timeout=DEPENDENCY_TIMEOUT_S)
-    except Exception as exc:
-        log.warning("health.dependency_failed", dependency=name, error=str(exc))
-        return False
-    return True
-
-
-async def _ping_db(engine: AsyncEngine) -> None:
-    async with engine.connect() as conn:
-        await conn.execute(text("SELECT 1"))
-
-
-async def _ping_redis(redis: Redis) -> None:
-    await redis.ping()
 
 
 app = create_app()

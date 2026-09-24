@@ -35,3 +35,13 @@ def current_context() -> dict[str, str]:
         )
         if value
     }
+
+
+def bind_job_context(*, request_id: str, tenant_id: str) -> None:
+    """A job continues the request that enqueued it.
+
+    arq runs each job in its own task, so the values set here belong to that job
+    and do not leak into the next one on the same worker.
+    """
+    request_id_var.set(request_id)
+    tenant_id_var.set(tenant_id)

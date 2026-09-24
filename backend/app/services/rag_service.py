@@ -11,6 +11,7 @@ from ai.rag.structured import ShipmentQueryFilter
 from app.core import ratelimit
 from app.core.errors import ServiceUnavailableError
 from app.core.logging import get_logger
+from app.core.metrics import record_rag
 from app.models import Insight, Shipment, Supplier, User
 from app.schemas.ask import AskRequest
 from app.schemas.common import PaginationParams
@@ -79,6 +80,18 @@ class RagService:
             )
         )
         await self.session.flush()
+
+        record_rag(
+            tenant_id=self.tenant_id,
+            route_type=result.route,
+            provider=result.model or "unknown",
+            hits=len(result.citations),
+            retrieve_ms=result.retrieve_ms,
+            llm_ms=result.llm_ms,
+            total_ms=result.total_ms,
+            token_in=result.token_in,
+            token_out=result.token_out,
+        )
         return result, shipments
 
     async def history(

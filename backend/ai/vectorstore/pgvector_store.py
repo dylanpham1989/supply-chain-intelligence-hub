@@ -1,4 +1,3 @@
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import CursorResult, text
@@ -118,16 +117,3 @@ class PgVectorStore:
 def _vector_literal(values: list[float]) -> str:
     """pgvector reads its own bracket syntax; asyncpg has no adapter for a list."""
     return "[" + ",".join(f"{v:.7g}" for v in values) + "]"
-
-
-def as_items(rows: list[dict[str, Any]]) -> list[VectorItem]:
-    return [
-        VectorItem(
-            chunk_id=row["id"],
-            document_id=row["document_id"],
-            content=row["content"],
-            embedding=row["embedding"],
-            metadata=row.get("metadata") or {},
-        )
-        for row in rows
-    ]

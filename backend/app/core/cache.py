@@ -19,6 +19,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.core.logging import get_logger
+from app.core.metrics import record_cache
 
 log = get_logger(__name__)
 
@@ -57,8 +58,11 @@ async def get_or_set[ModelT: BaseModel](
     try:
         cached = await redis.get(key)
         if cached is not None:
+            record_cache("hit")
             return model.model_validate_json(cached), True
+        record_cache("miss")
     except (RedisError, ValueError) as exc:
+        record_cache("error")
         log.warning("cache.read_failed", key=key, error=str(exc))
 
     value = await loader()

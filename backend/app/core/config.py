@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     env: Environment = "local"
     debug: bool = False
     app_name: str = "Supply Chain Intelligence Hub"
+    app_version: str = "0.1.0"
     api_prefix: str = "/api/v1"
 
     git_sha: str = "unknown"
