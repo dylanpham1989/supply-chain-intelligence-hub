@@ -7,7 +7,7 @@ UVR := $(BACKEND) uv run
 .DEFAULT_GOAL := help
 .PHONY: help up up-obs down down-obs restart logs ps build shell-api shell-db seed \
         migrate migrate-down revision test test-unit test-cov lint fmt typecheck \
-        verify audit clean install
+        verify audit clean install kind-up kind-deploy kind-down smoke tf-validate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -95,6 +95,22 @@ audit: ## Check for assistant tooling traces
 	bash scripts/check_ai_traces.sh
 
 verify: lint typecheck test audit ## Everything CI runs
+
+smoke: ## Drive the running stack end to end (upload, index, ask)
+	bash scripts/smoke_test.sh
+
+kind-up: ## Create the local kubernetes cluster with ingress and metrics-server
+	bash scripts/kind-up.sh
+
+kind-deploy: ## Build, load and apply the local overlay, then seed
+	bash scripts/kind-deploy.sh
+
+kind-down: ## Delete the local kubernetes cluster
+	kind delete cluster --name scih
+
+tf-validate: ## Format check, init and validate the terraform environments
+	cd infra/terraform && terraform fmt -check -recursive
+	cd infra/terraform/envs/staging && terraform init -backend=false -input=false >/dev/null && terraform validate
 
 clean: ## Stop the stack and delete volumes
 	$(COMPOSE) down -v

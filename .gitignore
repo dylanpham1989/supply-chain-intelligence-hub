@@ -62,3 +62,6 @@ Thumbs.db
 *.orig
 *.rej
 *.bak
+
+# kubernetes local overlay secret, generated from secret.env.example
+infra/k8s/overlays/*/secret.env
