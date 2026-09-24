@@ -57,9 +57,9 @@ ENV GIT_SHA=${GIT_SHA} BUILT_AT=${BUILT_AT}
 USER app
 EXPOSE 8000
 
-# Liveness, not readiness: a 503 means a dependency is down, which is no reason
-# to kill the container. Any HTTP answer counts as alive.
+# Liveness, not readiness: a 503 from /health/ready means a dependency is down,
+# which is no reason to kill the container. /health/live touches nothing.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
-    CMD ["python", "-c", "import sys,urllib.error,urllib.request\ntry:\n    urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)\nexcept urllib.error.HTTPError:\n    pass\nexcept Exception:\n    sys.exit(1)"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

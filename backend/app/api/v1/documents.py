@@ -4,6 +4,7 @@ from uuid import UUID
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 
+from app.core.context import current_request_id
 from app.core.deps import DbSession, get_current_user, require
 from app.models import User
 from app.models.enums import DocType
@@ -41,7 +42,6 @@ Remover = Annotated[User, Depends(require("document:delete"))]
 
 @router.post("", response_model=DocumentAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
-    request: Request,
     service: Service,
     user: Uploader,
     file: Annotated[UploadFile, File()],
@@ -52,7 +52,8 @@ async def upload_document(
     Parsing a large pdf takes tens of seconds, which is longer than a client or
     a proxy will wait, and a failed request would lose the upload entirely.
     """
-    request_id = request.headers.get("x-request-id", "")
+    # The middleware already generated one if the caller did not send one.
+    request_id = current_request_id()
     document = await service.upload(file, doc_type, user=user, request_id=request_id)
     return DocumentAccepted(document_id=document.id, status=document.status, job_id=document.job_id)
 
@@ -96,12 +97,8 @@ async def download_document(document_id: UUID, service: Service, _: Reader) -> D
 
 
 @router.post("/{document_id}/reprocess", response_model=DocumentAccepted)
-async def reprocess_document(
-    request: Request, document_id: UUID, service: Service, _: Uploader
-) -> DocumentAccepted:
-    document = await service.reprocess(
-        document_id, request_id=request.headers.get("x-request-id", "")
-    )
+async def reprocess_document(document_id: UUID, service: Service, _: Uploader) -> DocumentAccepted:
+    document = await service.reprocess(document_id, request_id=current_request_id())
     return DocumentAccepted(document_id=document.id, status=document.status, job_id=document.job_id)
 
 

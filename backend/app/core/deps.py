@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.context import set_actor
 from app.core.errors import AuthError, ForbiddenError
 from app.core.permissions import has_permission
 from app.core.security import TokenClaims, decode_token
@@ -57,6 +58,8 @@ async def get_current_user(
     user = await UserRepository(session, claims.tid).get(claims.sub)
     if user is None or not user.is_active:
         raise AuthError()
+    # From here on every log line and the access line carry who this was.
+    set_actor(str(claims.tid), str(claims.sub))
     return user
 
 
