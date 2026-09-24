@@ -32,18 +32,28 @@ class AnthropicProvider:
     ) -> LLMResponse:
         try:
             from anthropic import AsyncAnthropic
+            from anthropic.types import MessageParam
         except ImportError as exc:
             raise LLMUnavailableError("the anthropic package is not installed") from exc
 
         started = time.perf_counter()
         client = AsyncAnthropic(api_key=self._api_key, timeout=REQUEST_TIMEOUT_S, max_retries=2)
+        # Annotated rather than inlined: a bare dict literal is list[dict[str, str]],
+        # which matches none of the overloads, and the error mypy reports for that
+        # names whichever keyword it gave up on rather than the messages argument.
+        messages: list[MessageParam] = [{"role": "user", "content": user}]
         try:
             message = await client.messages.create(
                 model=self._model,
                 system=system,
-                messages=[{"role": "user", "content": user}],
+                messages=messages,
                 max_tokens=max_tokens,
-                temperature=temperature,
+                # The api still takes temperature; this version of the sdk no
+                # longer types it on create, and extra_body is the documented
+                # way through. Passing it as a keyword matches no overload, and
+                # the error mypy gives for that names the keyword rather than
+                # the reason.
+                extra_body={"temperature": temperature},
             )
         except Exception as exc:
             log.warning("llm.failed", provider="anthropic", error=str(exc))

@@ -8,6 +8,41 @@ resource "aws_kms_key" "this" {
   description             = "${local.name} data at rest"
   enable_key_rotation     = true
   deletion_window_in_days = 30
+
+  # Written out rather than left to the default, so that adding a grant later is
+  # an edit to something visible instead of a console click nobody records.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AccountAdministration"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${var.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid    = "ServiceUse"
+        Effect = "Allow"
+        Principal = {
+          Service = [
+            "logs.${var.region}.amazonaws.com",
+            "rds.amazonaws.com",
+            "elasticache.amazonaws.com",
+            "s3.amazonaws.com",
+          ]
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
 }
 
 resource "aws_kms_alias" "this" {
@@ -18,9 +53,10 @@ resource "aws_kms_alias" "this" {
 module "network" {
   source = "../../modules/network"
 
-  name       = local.name
-  region     = var.region
-  cidr_block = var.cidr_block
+  name        = local.name
+  region      = var.region
+  cidr_block  = var.cidr_block
+  kms_key_arn = aws_kms_key.this.arn
   # Staging pays for one. Prod passes false and gets one per zone.
   single_nat_gateway = true
 }
@@ -29,6 +65,7 @@ module "eks" {
   source = "../../modules/eks"
 
   name               = local.name
+  kms_key_arn        = aws_kms_key.this.arn
   kubernetes_version = var.kubernetes_version
   private_subnet_ids = module.network.private_subnet_ids
   public_subnet_ids  = module.network.public_subnet_ids
@@ -66,6 +103,7 @@ module "cache" {
   vpc_id                   = module.network.vpc_id
   subnet_ids               = module.network.private_subnet_ids
   client_security_group_id = module.eks.node_security_group_id
+  kms_key_arn              = aws_kms_key.this.arn
   node_type                = "cache.t4g.micro"
   replica_count            = 0
 }

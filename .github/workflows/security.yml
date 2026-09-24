@@ -49,8 +49,14 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Audit python dependencies
+        # The ai and ml groups are left out because torch resolves to a +cpu
+        # build that only exists on the pytorch index, and pip-audit resolves
+        # against PyPI. Auditing them would need that index wired in, and the
+        # trade is auditing the application's own dependencies today rather than
+        # nothing.
         run: |
-          uv export --no-hashes --all-groups --format requirements.txt > /tmp/requirements.txt
+          uv export --no-hashes --no-group ai --no-group ml \
+            --format requirements.txt > /tmp/requirements.txt
           uvx pip-audit -r /tmp/requirements.txt
         working-directory: backend
       - run: npm ci
@@ -62,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.29.0
+      - uses: aquasecurity/trivy-action@0.36.0
         with:
           scan-type: fs
           scan-ref: .

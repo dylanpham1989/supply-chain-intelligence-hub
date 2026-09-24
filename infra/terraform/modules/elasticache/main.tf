@@ -38,6 +38,7 @@ resource "aws_elasticache_replication_group" "this" {
 
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
+  kms_key_id                 = var.kms_key_arn
 
   # The cache is rebuildable, but the arq queue is not: a job lost here is a
   # document that never gets indexed.

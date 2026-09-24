@@ -22,12 +22,17 @@ spec:
       labels:
         app: minio
     spec:
+      # The image runs as uid 1001 and the volume below is created by the
+      # kubelet as root, so without this the server cannot write its own data
+      # directory. This is the piece compose has no equivalent for.
+      securityContext:
+        fsGroup: 1001
       containers:
         - name: minio
-          # The same image and tag the compose stack uses. A second tag is a second
-          # thing to keep current.
-          image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
-          args: ["server", "/data", "--console-address", ":9001"]
+          # The same image and tag the compose stack uses. MinIO's own images
+          # answer 401 to an anonymous pull now; this one is the same server,
+          # published by Bitnami, and starts without arguments.
+          image: bitnamilegacy/minio:2024
           ports:
             - containerPort: 9000
           env:
@@ -55,7 +60,7 @@ spec:
             periodSeconds: 5
           volumeMounts:
             - name: data
-              mountPath: /data
+              mountPath: /bitnami/minio/data
       volumes:
         - name: data
           emptyDir: {}

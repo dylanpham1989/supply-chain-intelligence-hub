@@ -51,7 +51,10 @@ shell-db: ## psql inside the postgres container
 	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-scih}
 
 install: ## Install backend and frontend dependencies locally
-	$(BACKEND) uv sync
+	# --all-groups so that mypy sees the optional providers. Without them it
+	# treats the anthropic and openai imports as Any and reports nothing, while
+	# CI installs them and fails.
+	$(BACKEND) uv sync --all-groups
 	cd frontend && npm ci
 
 migrate: ## Apply database migrations

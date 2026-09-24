@@ -14,6 +14,11 @@ variable "client_security_group_id" {
   type = string
 }
 
+variable "kms_key_arn" {
+  type        = string
+  description = "Customer managed key for encryption at rest."
+}
+
 variable "engine_version" {
   type    = string
   default = "7.1"

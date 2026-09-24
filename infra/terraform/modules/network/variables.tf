@@ -8,6 +8,11 @@ variable "region" {
   type        = string
 }
 
+variable "kms_key_arn" {
+  type        = string
+  description = "Customer managed key for the flow log group."
+}
+
 variable "cidr_block" {
   description = "VPC CIDR. Needs room for 2 public and 2 private /20 subnets."
   type        = string
