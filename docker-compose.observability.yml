@@ -1,0 +1,38 @@
+# Kept out of the default stack on purpose: Prometheus and Grafana cost about
+# 400 MB of RAM and nothing in the application needs them to run.
+#   make up-obs    start them
+#   make down-obs  stop them
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: [observability]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=24h
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    profiles: [observability]
+    environment:
+      # Local only. Anonymous viewing keeps the demo one click away.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  promdata:
+  grafanadata:

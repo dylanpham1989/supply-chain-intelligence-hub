@@ -26,6 +26,12 @@ server {
         proxy_set_header Host $host;
     }
 
+    # Metrics describe the whole system and name every route. Prometheus reaches
+    # the api directly inside the cluster, so nothing needs them from outside.
+    location /metrics {
+        return 404;
+    }
+
     # Single page app: unknown paths are routes, not missing files.
     location / {
         try_files $uri $uri/ /index.html;

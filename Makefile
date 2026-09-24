@@ -1,12 +1,13 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
+COMPOSE_OBS := docker compose -f docker-compose.yml -f docker-compose.observability.yml
 BACKEND := cd backend &&
 UVR := $(BACKEND) uv run
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart logs ps build shell-api shell-db seed migrate \
-        migrate-down revision test test-unit test-cov lint fmt typecheck verify \
-        audit clean install
+.PHONY: help up up-obs down down-obs restart logs ps build shell-api shell-db seed \
+        migrate migrate-down revision test test-unit test-cov lint fmt typecheck \
+        verify audit clean install
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -21,8 +22,16 @@ up: .env ## Start the full local stack
 	@echo "api  http://localhost:8000/docs"
 	@echo "web  http://localhost:5173"
 
+up-obs: .env ## Start the stack with Prometheus and Grafana
+	$(COMPOSE_OBS) --profile observability up -d
+	@echo "prometheus http://localhost:9090"
+	@echo "grafana    http://localhost:3001"
+
 down: ## Stop the stack, keep volumes
 	$(COMPOSE) down
+
+down-obs: ## Stop Prometheus and Grafana, leave the stack running
+	$(COMPOSE_OBS) --profile observability stop prometheus grafana
 
 restart: down up ## Restart the stack
 
@@ -64,8 +73,9 @@ test: ## Run backend and frontend tests (needs `make up`)
 test-unit: ## Run only the tests that need no services
 	$(UVR) pytest -m "not integration"
 
-test-cov: ## Run backend tests with coverage report
-	$(UVR) pytest --cov --cov-report=term-missing --cov-report=html
+test-cov: ## Run backend tests with coverage and the per-module floors
+	$(UVR) pytest --cov --cov-report=term-missing --cov-report=html --cov-report=json
+	$(UVR) python scripts/check_critical_coverage.py
 
 lint: ## Lint backend and frontend
 	$(BACKEND) uv run ruff check .
