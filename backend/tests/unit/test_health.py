@@ -6,11 +6,12 @@ from app.main import create_app
 
 
 async def test_health_reports_dependency_status(client: AsyncClient) -> None:
+    """The unprefixed path stays as an alias of readiness for existing probes."""
     response = await client.get("/health")
 
     assert response.status_code in (200, 503)
     body = response.json()
-    assert set(body) == {"status", "db", "redis"}
+    assert set(body) == {"status", "db", "redis", "s3"}
     assert body["status"] in ("ok", "degraded")
     assert isinstance(body["db"], bool)
     assert isinstance(body["redis"], bool)

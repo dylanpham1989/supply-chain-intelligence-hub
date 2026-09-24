@@ -295,3 +295,50 @@ async def test_the_keyword_query_filters_by_tenant_and_not_only_the_policy(
     hits = await KeywordSearch(session).search(alpha.id, "late delivery penalty", k=20)
 
     assert hits == []
+
+
+async def test_deleting_a_document_removes_only_its_own_vectors(
+    session: AsyncSession, two_contracts: tuple[Tenant, Tenant]
+) -> None:
+    """The pgvector backend deletes through the same policy as everything else.
+
+    A backend that stored vectors outside Postgres would need this call to keep
+    a deleted contract from staying answerable, which is why it is part of the
+    VectorStore interface rather than left to the cascade.
+    """
+    alpha, beta = two_contracts
+
+    await set_tenant_context(session, beta.id)
+    beta_chunk = (
+        await session.execute(select(DocumentChunk).where(DocumentChunk.tenant_id == beta.id))
+    ).scalar_one()
+
+    removed = await PgVectorStore(session).delete_document(beta.id, beta_chunk.document_id)
+
+    assert removed == 1
+    assert await PgVectorStore(session).search(beta.id, [0.0] * 384, k=10) == []
+
+    await set_tenant_context(session, alpha.id)
+    assert await PgVectorStore(session).search(alpha.id, [0.0] * 384, k=10)
+
+
+async def test_deleting_another_tenants_document_removes_nothing(
+    session: AsyncSession, two_contracts: tuple[Tenant, Tenant]
+) -> None:
+    alpha, beta = two_contracts
+
+    await set_tenant_context(session, alpha.id)
+    alpha_chunk = (
+        await session.execute(select(DocumentChunk).where(DocumentChunk.tenant_id == alpha.id))
+    ).scalar_one()
+
+    await set_tenant_context(session, beta.id)
+    removed = await PgVectorStore(session).delete_document(beta.id, alpha_chunk.document_id)
+
+    assert removed == 0
+
+
+async def test_upserting_nothing_touches_the_database(session: AsyncSession) -> None:
+    written = await PgVectorStore(session).upsert(UUID(int=0), [])
+
+    assert written == 0

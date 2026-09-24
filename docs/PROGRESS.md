@@ -506,3 +506,56 @@ Review findings:
 chunk at 117 kB so nothing else pays for them.
 
 Next: phase 8 is the optional risk classifier, or straight to observability.
+
+## 2026-09-24 - Phase 9, observability and testing
+
+Phase 8 (the risk classifier) is skipped. A model trained on generated data produces a number
+nobody can defend, and the first question about it would be where the labels came from.
+
+Done:
+- `app/core/context.py` holds `request_id`, `tenant_id` and `user_id` as `ContextVar`s, and a
+  structlog processor copies them onto every record. `ContextVar` not thread local, because one
+  thread serves many requests interleaved and a thread local would credit a line to whichever
+  request happened to be running.
+- Three raw ASGI middlewares rather than `BaseHTTPMiddleware`: request context, access log,
+  metrics. `BaseHTTPMiddleware` wraps each request in a task group and a memory stream, which
+  costs latency and, because it runs the app in a child task, would lose the tenant that is
+  bound deeper in the stack.
+- `X-Request-ID` is read from the request when present and generated otherwise, validated
+  against `^[A-Za-z0-9._-]{1,64}$`, and returned on the response. It rides the job payload into
+  the worker, so one upload greps out as one story:
+  `ingest.started`, `ingest.completed` and `embed.completed` all carry `request_id=trace-upload-10`.
+- `app/core/metrics.py`: 11 metrics with bounded labels, custom buckets per workload, and a
+  tenant cap of 50 with the rest folded into `other`.
+- Health split into `/health/live` (touches nothing), `/health/ready` (three dependencies, 2s
+  each, concurrent) and `/health/info`. `/health` stays as an alias of readiness. The container
+  healthcheck now points at liveness.
+- Prometheus and Grafana in `docker-compose.observability.yml` behind a profile, with an
+  8 panel dashboard provisioned from the repo. `make up-obs`, `make down-obs`.
+- `scripts/check_critical_coverage.py` enforces 90 percent on the six modules that decide who
+  sees whose data, separately from the project-wide 70.
+- `docs/observability.md` and `docs/testing.md`.
+
+Bugs found by running it:
+1. **The route label was missing the API prefix.** FastAPI 0.141 keeps included routers nested
+   instead of flattening them, so `scope["route"].path` is the path the inner router declared:
+   `/shipments/{shipment_id}`, not `/api/v1/shipments/{shipment_id}`. Every dashboard query
+   written against the real URL would have matched nothing. The template is now rebuilt from
+   `scope["path"]` and the matched path parameters, which is version independent.
+2. **Every Grafana panel would have been empty.** The dashboard JSON refers to datasource uid
+   `prometheus`; a provisioned datasource without an explicit `uid` gets a generated one
+   (`PBFA97CFB590B2093` here). Pinned the uid in the provisioning file. Visible only by opening
+   Grafana, not by any check of the files.
+3. **The critical-coverage gate failed on its first run**, at 85 percent for the pgvector store.
+   The gap was real: `delete_document` had no test and no caller, and `as_items` had no caller
+   at all. Removed the dead helper and added three tests, including one that shows deleting
+   another tenant's document removes nothing.
+4. **`npm run gen:api` could not run.** It called `openapi-typescript`, which is not a
+   dependency and cannot be one: version 7 peer-depends on TypeScript 5 and this project is on
+   6. The script now runs it through `npx` and pipes the result through prettier, which is what
+   keeps the generated file from rewriting itself on every run.
+
+Measured on the running stack: `/metrics` scrape 4.7 ms, access log adds about 0.1 ms per
+request, 311 backend tests in 84 s, coverage 92.6 percent.
+
+Next: phase 10, Kubernetes manifests, Terraform and CI.

@@ -63,7 +63,15 @@ make typecheck   # mypy (strict) and tsc
 make verify      # all of the above
 make down        # stop, keeping data volumes
 make clean       # stop and delete data volumes
+make up-obs      # add prometheus (:9090) and grafana (:3001)
 ```
+
+Logs are JSON on stdout, every line carrying the request id, tenant and user. The same id
+follows an upload into the worker, so one grep covers the whole chain. `/metrics` exposes
+Prometheus counters with deliberately bounded labels, and `/health/live` and `/health/ready`
+are split so that a slow database cannot get every pod restarted. The reasoning is in
+[docs/observability.md](docs/observability.md), and the test strategy is in
+[docs/testing.md](docs/testing.md).
 
 Configuration lives in one place, `backend/app/core/config.py`. Nothing else reads the
 environment directly. Any environment other than `local` or `test` refuses to start while the
@@ -97,14 +105,14 @@ tests fail when the boundary is removed.
 |-------|-------|--------|
 | 1 | Project foundation, local stack, health checks | Done |
 | 2 | Schema and tenant isolation with row-level security | Done |
-| 3 | JWT auth with refresh rotation, role-based access | Next |
-| 4 | Core REST API, filtering, Redis caching | Planned |
-| 5 | Document upload and background ingestion | Planned |
-| 6 | Retrieval pipeline, vector store, grounded answers | Planned |
-| 7 | Dashboard, tables, charts, question answering UI | Planned |
-| 8 | Shipment risk classification | Planned, may be dropped |
-| 9 | Structured logging, metrics, full test suite | Planned |
-| 10 | Kubernetes manifests, CI/CD, Terraform modules | Planned |
+| 3 | JWT auth with refresh rotation, role-based access | Done |
+| 4 | Core REST API, filtering, Redis caching | Done |
+| 5 | Document upload and background ingestion | Done |
+| 6 | Retrieval pipeline, vector store, grounded answers | Done |
+| 7 | Dashboard, tables, charts, question answering UI | Done |
+| 8 | Shipment risk classification | Dropped, see docs/PROGRESS.md |
+| 9 | Structured logging, metrics, full test suite | Done |
+| 10 | Kubernetes manifests, CI/CD, Terraform modules | Next |
 | 11 | Architecture docs, decision records, demo | Planned |
 
 ## Repository layout
