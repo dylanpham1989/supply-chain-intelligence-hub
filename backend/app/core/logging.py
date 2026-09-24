@@ -7,6 +7,8 @@ from typing import Any
 
 import structlog
 
+from app.core.context import current_context
+
 SENSITIVE_KEY = re.compile(r"(api[_-]?key|authorization|password|passwd|token|secret)", re.I)
 REDACTED = "***"
 
@@ -20,11 +22,25 @@ def redact_sensitive(
     return event_dict
 
 
+def add_request_context(
+    _logger: Any, _method: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    """Stamp every line with who it was for.
+
+    Without this, debugging a report means guessing which of the interleaved
+    lines belong to the request that failed.
+    """
+    for key, value in current_context().items():
+        event_dict.setdefault(key, value)
+    return event_dict
+
+
 def configure_logging(*, env: str = "local", level: str = "INFO") -> None:
     shared: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
+        add_request_context,
         redact_sensitive,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
