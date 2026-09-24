@@ -19,7 +19,7 @@ dependencies = [
     # Only HS256 is used here, which both implement identically.
     "pyjwt>=2.10",
     "passlib[bcrypt]>=1.7.4",
-    "bcrypt<4.1",
+    "bcrypt<5.1",
     "python-multipart>=0.0.20",
     "structlog>=24.4",
     "prometheus-client>=0.21",
