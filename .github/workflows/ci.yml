@@ -57,6 +57,17 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
+      minio:
+        # This image starts the server with no arguments, which a services entry
+        # cannot pass. MinIO's own images need authentication to pull.
+        image: bitnamilegacy/minio:2024
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/minio/health/ready"
+          --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       ENV: test
       DATABASE_URL: postgresql+asyncpg://app_user:app_password@localhost:5432/scih
@@ -75,13 +86,6 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
-      - name: Start object storage
-        # A services: entry cannot pass the `server /data` argument the image
-        # needs, so this one runs as a plain container.
-        run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
       - name: Cache the embedding model
         uses: actions/cache@v4
         with:

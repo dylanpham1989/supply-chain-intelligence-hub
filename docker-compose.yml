@@ -36,8 +36,16 @@ services:
       retries: 10
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
-    command: ["server", "/data", "--console-address", ":9001"]
+    # MinIO's own images on Docker Hub and quay both answer 401 to an
+    # anonymous pull as of September 2026, which breaks `make up` on a machine
+    # that has not cached them. This one is the same MinIO, published by Bitnami
+    # and still pullable, and it starts the server without arguments.
+    image: bitnamilegacy/minio:2024
+    # A named volume is created owned by root, and this image runs as uid 1001,
+    # so the server cannot write its own data directory. Kubernetes solves this
+    # with fsGroup; compose has no equivalent, so the local container takes the
+    # directory as root instead.
+    user: root
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
@@ -45,9 +53,11 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - miniodata:/data
+      - miniodata:/bitnami/minio/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # This image ships the server, not the mc client, so the check is the
+      # readiness endpoint rather than `mc ready`.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/ready"]
       interval: 5s
       timeout: 3s
       retries: 10

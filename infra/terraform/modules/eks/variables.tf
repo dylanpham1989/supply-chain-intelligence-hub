@@ -2,6 +2,11 @@ variable "name" {
   type = string
 }
 
+variable "kms_key_arn" {
+  type        = string
+  description = "Customer managed key for envelope encryption of Kubernetes secrets."
+}
+
 variable "kubernetes_version" {
   type    = string
   default = "1.31"

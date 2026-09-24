@@ -658,3 +658,63 @@ store started returning I/O errors, which is what `kind load` failed on. 28 GB o
 and 5 GB of application caches later it recovered. Worth knowing before blaming the manifests.
 
 Next: phase 11, architecture documentation and the demo package.
+
+## 2026-09-24 - Phase 11, documentation and the first green pipeline
+
+Done:
+- Eleven decision records in `docs/adr`, Nygard format with one addition: every record ends
+  with a `Revisit when` condition. A decision that cannot say what would make it wrong is a
+  preference with a heading.
+- `docs/architecture.md` with five Mermaid diagrams: the container view, the five isolation
+  layers, ingestion, answering a question, and the token lifecycle. Mermaid because it renders
+  on GitHub, diffs in review, and is edited in the same commit as the code it describes.
+- `docs/security.md`, fourteen threats each with a residual risk column. The column is the
+  point: the log redaction is a denylist on key names and does not look at values, and prompt
+  injection is reduced to a wrong answer rather than removed.
+- `docs/performance.md` with `scripts/bench.py` output and two query plans. The plan for the
+  shipment list shows the RLS policy as a `One-Time Filter`, evaluated once per statement and
+  not per row, which answers the usual objection to row-level security.
+- `docs/demo.md`, a five minute walkthrough plus a table mapping likely questions to the file
+  that answers them.
+- `scripts/audit_repo.sh`, `CONTRIBUTING.md`, and a rewritten README that leads with an answer
+  and a citation, then measured results and ten known limitations.
+
+Things the documentation had to be honest about rather than dress up:
+- The cache saves nothing measurable at 320 rows. The miss and hit numbers are in the document
+  instead of a claimed speedup.
+- The full text query plan is a sequential scan, because 81 rows fit in three pages and the
+  planner is right to ignore the GIN index. The index is justified by the size the table
+  reaches, which is the argument rather than the current plan.
+- `statistics.quantiles` with its default method extrapolates, and the first benchmark run
+  reported a p99 above the observed maximum.
+
+The first CI run was red five times, all of them real:
+1. **The MinIO image is no longer pullable at all.** Docker Hub and quay both answer 401 to an
+   anonymous pull, so `make up` fails on any machine that has not cached it, which is every
+   machine except this one. For a repository whose first promise is that it runs, that is the
+   worst kind of bug, and only CI on a clean runner could have found it. Swapped for the same
+   server published by Bitnami, which also starts without arguments and so fits a services
+   entry. A named volume is created owned by root and the image runs as uid 1001, so compose
+   takes the directory as root and Kubernetes uses `fsGroup`.
+2. **mypy was green locally and red in CI.** `uv sync` without `--all-groups` leaves the
+   optional providers uninstalled, so mypy treated the anthropic import as Any and checked
+   nothing. With them installed it found two real problems: a bare dict literal matches none of
+   the `create` overloads, and this version of the sdk no longer types `temperature`. `make
+   install` now installs every group so local and CI agree.
+3. **pip-audit could not resolve the export**, because torch pins to a `+cpu` build that lives
+   only on the pytorch index. The ai and ml groups are excluded with the reason written down.
+4. **trivy-action 0.29.0 does not exist**, and the tags carry a `v`.
+5. **checkov found twenty findings.** Twelve fixed: envelope encryption for Kubernetes secrets,
+   all five control plane log types, VPC flow logs with a year of retention, IAM database
+   authentication, forced TLS to Postgres, enhanced monitoring, encrypted performance insights,
+   a customer managed key for ElastiCache, a written key policy, pinned availability zones and
+   tags copied to snapshots. Eight skipped, each with a sentence saying why.
+
+Then pip-audit found a real one: PYSEC-2026-1325 against ecdsa, with no fixed release. ecdsa
+is there because python-jose depends on it, and python-jose has not shipped in years. Only
+HS256 is used, which PyJWT implements identically, so the library was replaced rather than the
+advisory ignored. rsa left the tree with it.
+
+All three workflows green. Rebuilding the compose stack against an empty object store also
+proved the startup bucket fix from phase 10: readiness went from `s3: false` to `ok` on its
+own, and the smoke test passed from upload through indexing to a cited answer.

@@ -35,7 +35,22 @@ resource "aws_eks_cluster" "this" {
   }
 
   # Without these, an audit question after an incident has no answer.
-  enabled_cluster_log_types = ["api", "audit", "authenticator"]
+  enabled_cluster_log_types = [
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler",
+  ]
+
+  # A Kubernetes Secret is base64 in etcd. This encrypts it with a customer
+  # managed key on the way in, so reading the etcd volume is not enough.
+  encryption_config {
+    provider {
+      key_arn = var.kms_key_arn
+    }
+    resources = ["secrets"]
+  }
 
   access_config {
     authentication_mode = "API"

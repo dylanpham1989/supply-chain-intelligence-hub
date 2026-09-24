@@ -4,6 +4,13 @@
 
 data "aws_availability_zones" "available" {
   state = "available"
+
+  # Without the opt-in filter, AWS adding a zone silently changes which subnets
+  # this module builds, and moving a subnet means recreating it.
+  filter {
+    name   = "opt-in-status"
+    values = ["opt-in-not-required"]
+  }
 }
 
 locals {
@@ -120,4 +127,54 @@ resource "aws_vpc_endpoint" "s3" {
   route_table_ids   = aws_route_table.private[*].id
 
   tags = { Name = "${var.name}-s3" }
+}
+
+
+# Flow logs are the only record of what talked to what. Without them, the answer
+# to "was anything else reached from that pod" after an incident is a shrug.
+resource "aws_cloudwatch_log_group" "flow" {
+  name = "/aws/vpc/${var.name}"
+  # A year, because the question flow logs answer is usually asked long after
+  # the traffic happened.
+  retention_in_days = var.flow_log_retention_days
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_iam_role" "flow" {
+  name = "${var.name}-flow-logs"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "vpc-flow-logs.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "flow" {
+  name = "${var.name}-flow-logs"
+  role = aws_iam_role.flow.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+      ]
+      Resource = "${aws_cloudwatch_log_group.flow.arn}:*"
+    }]
+  })
+}
+
+resource "aws_flow_log" "this" {
+  vpc_id               = aws_vpc.this.id
+  traffic_type         = "REJECT"
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.flow.arn
+  iam_role_arn         = aws_iam_role.flow.arn
 }
